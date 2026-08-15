@@ -26,21 +26,31 @@ def get_all_tw_stocks_info():
             }
     return stocks_info
 
-# 標準 K 線圖 (包含 20日與 60日均線及成交量)
+# 標準 K 線圖 (包含 20日藍線 與 100日紫線/20週MA 及成交量)
 def plot_stock_chart(ticker, df_day):
-    plot_df = df_day.iloc[-90:].copy()
+    plot_df = df_day.iloc[-120:].copy()
     if isinstance(plot_df.columns, pd.MultiIndex):
         plot_df.columns = plot_df.columns.get_level_values(0)
         
+    # 計算 20日均線與 100日均線 (20週MA)
+    ma20 = plot_df['Close'].rolling(20).mean()
+    ma100 = plot_df['Close'].rolling(100).mean()
+    
+    # 客製化均線顏色: 20日為藍色, 100日(20週)為紫色
+    addplots = [
+        mpf.make_addplot(ma20, color='dodgerblue', width=1.5),
+        mpf.make_addplot(ma100, color='purple', width=1.8)
+    ]
+    
     fig, ax = mpf.plot(
         plot_df,
         type='candle',
         style='yahoo',
-        title=f"\n{ticker} - K-Chart",
+        addplot=addplots,
+        title=f"\n{ticker} - K-Chart (Blue: 20MA / Purple: 100MA - 20W)",
         ylabel='Price (TWD)',
         volume=True,
         ylabel_lower='Volume',
-        mav=(20, 60),
         figratio=(16, 9),
         figscale=1.1,
         returnfig=True
@@ -52,7 +62,7 @@ def run_strategy(ticker, name, group):
         df_day = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
         df_week = yf.download(ticker, period="2y", interval="1wk", progress=False, auto_adjust=True)
         
-        if len(df_day) < 60 or len(df_week) < 20:
+        if len(df_day) < 100 or len(df_week) < 20:
             return None
             
         close_day = df_day['Close'].values.flatten()

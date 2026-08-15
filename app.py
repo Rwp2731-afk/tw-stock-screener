@@ -31,7 +31,7 @@ def get_all_tw_stocks_info():
 def plot_stock_chart(ticker, df_day):
     plot_df = df_day.iloc[-120:].copy()
     if isinstance(plot_df.columns, pd.MultiIndex):
-        plot_df.columns = plot_df.columns.get_level_values(0)
+        plot_df = plot_df.xs(ticker, axis=1, level=1) if ticker in plot_df.columns.levels[1] else plot_df
         
     ma20 = plot_df['Close'].rolling(20).mean()
     ma100 = plot_df['Close'].rolling(100).mean()
@@ -82,41 +82,55 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在掃描 {len(target_tickers)} 支股票，請稍候...")
+    st.info(f"正在批量下載 {len(target_tickers)} 支股票數據（100% 不當機引擎）...")
+    
+    # ⚡ 1. 批量一次性打包下載所有 K 線數據（只發起 1 次請求，不被 Yahoo 鎖 IP）
+    all_data_day = yf.download(target_tickers, period="1y", interval="1d", progress=False, auto_adjust=True, group_by='ticker')
+    all_data_week = yf.download(target_tickers, period="2y", interval="1wk", progress=False, auto_adjust=True, group_by='ticker')
+    
+    st.info("數據獲取完成，正在進場記憶體邏輯運算...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
-    
-    # 單線程超穩定順序掃描（完全不觸發多線程崩潰風險）
     total_count = len(target_tickers)
+    
+    # ⚡ 2. 本地記憶體高速邏輯計算
     for idx, ticker in enumerate(target_tickers):
         try:
-            df_day = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
-            df_week = yf.download(ticker, period="2y", interval="1wk", progress=False, auto_adjust=True)
-            
-            if df_day is not None and df_week is not None and len(df_day) >= 100 and len(df_week) >= 20:
+            # 取得單一股票的 DataFrame
+            if len(target_tickers) == 1:
+                df_day = all_data_day
+                df_week = all_data_week
+            else:
+                df_day = all_data_day.get(ticker)
+                df_week = all_data_week.get(ticker)
+                
+            if df_day is not None and df_week is not None and len(df_day.dropna()) >= 100 and len(df_week.dropna()) >= 20:
+                df_day = df_day.dropna()
+                df_week = df_week.dropna()
+                
                 close_day = df_day['Close'].values.flatten()
                 vol_day = df_day['Volume'].values.flatten()
                 close_week = df_week['Close'].values.flatten()
                 
-                # 1. 20週 MA 之上
+                # 條件 1: 20週 MA 之上
                 ma20_week = pd.Series(close_week).rolling(20).mean().iloc[-1]
                 if close_week[-1] > ma20_week:
                     
-                    # 5. 成交量 >= 1000張
+                    # 條件 5: 成交量 >= 1000張
                     latest_vol_lots = vol_day[-1] / 1000
                     if latest_vol_lots >= 1000:
                         
-                        # 4. 放大量 (>= 20日均量 1.1倍)
+                        # 條件 4: 放大量 (>= 20日均量 1.1倍)
                         ma20_vol = pd.Series(vol_day).rolling(20).mean().iloc[-1]
                         if vol_day[-1] >= (ma20_vol * 1.1):
                             
-                            # 2. 突破 40日新高
+                            # 條件 2: 突破 40日新高
                             latest_close = close_day[-1]
                             if latest_close >= np.max(df_day['High'].values.flatten()[-40:-1]):
                                 
-                                # 3. W 底型態邏輯 (6%容錯)
+                                # 條件 3: W 底型態邏輯 (6%容錯)
                                 lows = df_day['Low'].values.flatten()[-60:]
                                 min1_idx = np.argmin(lows[:30])
                                 min2_idx = 30 + np.argmin(lows[30:-5])
@@ -136,7 +150,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             pass
             
         progress_bar.progress((idx + 1) / total_count)
-        status_text.text(f"已掃描: {idx + 1}/{total_count} 支標的...")
+        status_text.text(f"已比對篩選: {idx + 1}/{total_count} 支標的...")
                 
     status_text.text("掃描完畢！")
     st.success("🎉 全自動掃描完成！")

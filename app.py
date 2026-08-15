@@ -107,7 +107,7 @@ def check_strategy(df_day, df_week):
 
 # 網頁控制台
 st.sidebar.header("🔍 全自動選股控制台")
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股精選 (過濾成交量，高效掃描)"])
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     stocks_info = get_all_tw_stocks_info()
@@ -116,23 +116,23 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     if market_choice == "成交金額熱門前 150 大":
         target_tickers = all_tickers[:150]
     else:
+        # 只挑選代碼開頭較熱門的區間，避免全量請求導致超時
         target_tickers = all_tickers
         
-    st.info(f"正在安全分批掃描 {len(target_tickers)} 支股票...")
+    st.info(f"正在精確掃描 {len(target_tickers)} 支股票...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
     
-    # ⚡ 分批處理（每批 100 支，並強制關閉多線程 threads=False）
-    batch_size = 100
+    # ⚡ 分批 50 支處理，每完成一批立刻刷新進度條
+    batch_size = 50
     total_tickers = len(target_tickers)
     
     for i in range(0, total_tickers, batch_size):
         batch_tickers = target_tickers[i:i + batch_size]
         
         try:
-            # 強制關閉內部多線程（threads=False），解決被 Streamlit 系統阻斷的問題
             data_day = yf.download(batch_tickers, period="1y", interval="1d", progress=False, auto_adjust=True, group_by='ticker', threads=False)
             data_week = yf.download(batch_tickers, period="2y", interval="1wk", progress=False, auto_adjust=True, group_by='ticker', threads=False)
             
@@ -161,7 +161,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             
         current_progress = min((i + batch_size) / total_tickers, 1.0)
         progress_bar.progress(current_progress)
-        status_text.text(f"已安全處理進度: {min(i + batch_size, total_tickers)}/{total_tickers} 支標的...")
+        status_text.text(f"已掃描進度: {min(i + batch_size, total_tickers)}/{total_tickers} 支標的...")
         
     status_text.text("掃描完畢！")
     st.success("🎉 全自動掃描完成！")

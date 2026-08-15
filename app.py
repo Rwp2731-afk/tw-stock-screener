@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
 st.title("📈 台股全自動選股雷達 (全台股掃描)")
-st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 60日突破 + W底型態 + 2倍爆量 + 成交量>1000張 的強勢標的")
+st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 60日突破 + W底型態 + 1.1倍爆量 + 成交量>1000張 的強勢標的")
 
 # 自動獲取全台股清單函數
 @st.cache_data(ttl=86400)  # 快取 24 小時，避免重複抓取

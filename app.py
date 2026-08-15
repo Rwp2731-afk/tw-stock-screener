@@ -5,14 +5,15 @@ import numpy as np
 import mplfinance as mpf
 import twstock
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (全台股掃描)")
+st.title("📈 台股全自動選股雷達 (全台股極速掃描)")
 st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 40日突破 + W底型態(6%容錯) + 1.1倍放量 + 成交量>1000張 的強勢標的")
 
-# 自動獲取全台股清單與基本資訊 (代號、名稱、產業)
+# 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_info():
     stocks_info = {}
@@ -56,6 +57,7 @@ def plot_stock_chart(ticker, df_day):
     )
     st.pyplot(fig)
 
+# 單一股票策略運算邏輯
 def run_strategy(ticker, name, group):
     try:
         df_day = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
@@ -112,7 +114,7 @@ def run_strategy(ticker, name, group):
 # 網頁控制台
 st.sidebar.header("🔍 全自動選股控制台")
 
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支極速掃描)"])
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     stocks_info = get_all_tw_stocks_info()
@@ -120,44 +122,50 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     
     if market_choice == "成交金額熱門前 150 大":
         st.info("正在計算全市場最新成交金額排序，挑選前 150 大熱門標的...")
-        
-        # 動態獲取全台股最新一日行情以計算成交金額 (收盤價 × 成交量)
         try:
             download_df = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
             if 'Close' in download_df and 'Volume' in download_df:
                 latest_close = download_df['Close'].iloc[-1]
                 latest_vol = download_df['Volume'].iloc[-1]
-                turnover = latest_close * latest_vol  # 計算成交金額
-                
-                # 排序並取前 150 檔最高成交金額的股票
+                turnover = latest_close * latest_vol
                 top_turnover_tickers = turnover.sort_values(ascending=False).head(150).index.tolist()
                 target_tickers = [t for t in top_turnover_tickers if t in stocks_info]
             else:
                 target_tickers = all_tickers[:150]
         except Exception:
             target_tickers = all_tickers[:150]
-            
-        if not target_tickers:
-            target_tickers = all_tickers[:150]
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在全自動掃描 {len(target_tickers)} 支台灣股票，請稍候...")
+    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票，請稍候...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
     
-    for idx, ticker in enumerate(target_tickers):
-        info = stocks_info[ticker]
-        status_text.text(f"掃描中 ({idx+1}/{len(target_tickers)}): {ticker} {info['name']}")
-        res = run_strategy(ticker, info['name'], info['group'])
-        if res:
-            matches.append(res)
-        progress_bar.progress((idx + 1) / len(target_tickers))
+    # ⚡ 多線程平行計算 (開啟 16 個併行線程)
+    completed_count = 0
+    total_count = len(target_tickers)
+    
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        future_to_ticker = {
+            executor.submit(run_strategy, ticker, stocks_info[ticker]['name'], stocks_info[ticker]['group']): ticker 
+            for ticker in target_tickers
+        }
         
+        for future in as_completed(future_to_ticker):
+            ticker = future_to_ticker[future]
+            res = future.result()
+            if res:
+                matches.append(res)
+            
+            completed_count += 1
+            if completed_count % 10 == 0 or completed_count == total_count:
+                progress_bar.progress(completed_count / total_count)
+                status_text.text(f"已極速掃描: {completed_count}/{total_count} 支標的...")
+                
     status_text.text("掃描完畢！")
-    st.success("🎉 全自動掃描完成！")
+    st.success("🎉 全自動極速掃描完成！")
     
     if matches:
         st.subheader(f"✅ 符合 5 大強勢條件的標的 (共 {len(matches)} 支)")

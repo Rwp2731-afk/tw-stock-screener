@@ -66,9 +66,9 @@ def run_strategy(ticker):
         if latest_vol_lots < 1000:
             return None
         
-        # 條件 4: 放大量 (>= 20日均量 2倍)
+        # 條件 4: 放大量 (>= 20日均量 1.1倍)
         ma20_vol = pd.Series(vol_day).rolling(20).mean().iloc[-1]
-        if not (vol_day[-1] >= (ma20_vol * 2.0)):
+        if not (vol_day[-1] >= (ma20_vol * 1.1)):
             return None
         
         # 條件 2: 突破 60日新高

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (全台股極速掃描)")
+st.title("📈 台股全自動選股雷達")
 st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 40日突破 + W底型態(6%容錯) + 1.1倍放量 + 成交量>1000張 的強勢標的")
 
 # 自動獲取全台股清單與基本資訊
@@ -63,7 +63,7 @@ def run_strategy(ticker, name, group):
         df_day = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
         df_week = yf.download(ticker, period="2y", interval="1wk", progress=False, auto_adjust=True)
         
-        if len(df_day) < 100 or len(df_week) < 20:
+        if df_day is None or df_week is None or len(df_day) < 100 or len(df_week) < 20:
             return None
             
         close_day = df_day['Close'].values.flatten()
@@ -114,7 +114,7 @@ def run_strategy(ticker, name, group):
 # 網頁控制台
 st.sidebar.header("🔍 全自動選股控制台")
 
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支極速掃描)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支)"])
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     stocks_info = get_all_tw_stocks_info()
@@ -137,35 +137,37 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票，請稍候...")
+    st.info(f"正在穩定掃描 {len(target_tickers)} 支股票，請稍候...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
     
-    # ⚡ 多線程平行計算 (開啟 16 個併行線程)
+    # ⚡ 降至 4 個併行線程，兼顧速度與雲端主機穩定度
     completed_count = 0
     total_count = len(target_tickers)
     
-    with ThreadPoolExecutor(max_workers=16) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         future_to_ticker = {
             executor.submit(run_strategy, ticker, stocks_info[ticker]['name'], stocks_info[ticker]['group']): ticker 
             for ticker in target_tickers
         }
         
         for future in as_completed(future_to_ticker):
-            ticker = future_to_ticker[future]
-            res = future.result()
-            if res:
-                matches.append(res)
+            try:
+                res = future.result()
+                if res:
+                    matches.append(res)
+            except Exception:
+                pass
             
             completed_count += 1
-            if completed_count % 10 == 0 or completed_count == total_count:
+            if completed_count % 5 == 0 or completed_count == total_count:
                 progress_bar.progress(completed_count / total_count)
-                status_text.text(f"已極速掃描: {completed_count}/{total_count} 支標的...")
+                status_text.text(f"已掃描進度: {completed_count}/{total_count} 支標的...")
                 
     status_text.text("掃描完畢！")
-    st.success("🎉 全自動極速掃描完成！")
+    st.success("🎉 全自動掃描完成！")
     
     if matches:
         st.subheader(f"✅ 符合 5 大強勢條件的標的 (共 {len(matches)} 支)")

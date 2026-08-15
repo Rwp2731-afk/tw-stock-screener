@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
 st.title("📈 台股全自動選股雷達 (全台股掃描)")
-st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 60日突破 + W底型態 + 1.1倍放量 + 成交量>1000張 的強勢標的")
+st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 40日突破 + W底型態(6%容錯) + 1.1倍放量 + 成交量>1000張 的強勢標的")
 
 # 自動獲取全台股清單與基本資訊 (代號、名稱、產業)
 @st.cache_data(ttl=86400)
@@ -84,18 +84,18 @@ def run_strategy(ticker, name, group):
         if not (vol_day[-1] >= (ma20_vol * 1.1)):
             return None
         
-        # 條件 2: 突破 60日新高
+        # 條件 2: 突破 40日新高 (由原本 60 日微調為 40 日，約 2 個月)
         latest_close = close_day[-1]
-        if not (latest_close >= np.max(df_day['High'].values.flatten()[-60:-1])):
+        if not (latest_close >= np.max(df_day['High'].values.flatten()[-40:-1])):
             return None
         
-        # 條件 3: W 底型態數學邏輯
+        # 條件 3: W 底型態數學邏輯 (雙腳容錯率由 4% 放寬至 6%)
         lows = df_day['Low'].values.flatten()[-60:]
         min1_idx = np.argmin(lows[:30])
         min2_idx = 30 + np.argmin(lows[30:-5])
         neck_high = np.max(df_day['High'].values.flatten()[-60:][min1_idx:min2_idx])
         foot1, foot2 = lows[min1_idx], lows[min2_idx]
-        cond3 = (abs(foot1 - foot2) / foot1 < 0.04) and (latest_close > neck_high)
+        cond3 = (abs(foot1 - foot2) / foot1 < 0.06) and (latest_close > neck_high)
         
         if cond3:
             return {

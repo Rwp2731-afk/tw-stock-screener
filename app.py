@@ -12,20 +12,6 @@ st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="
 st.title("📈 台股全自動選股雷達 (全台股掃描)")
 st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 40日突破 + W底型態(6%容錯) + 1.1倍放量 + 成交量>1000張 的強勢標的")
 
-# 台股真實市值前 100 大精選權值股清單
-TOP_100_CODES = [
-    "2330", "2317", "2454", "2308", "2382", "2881", "2882", "3711", "2303", "2891",
-    "2886", "3231", "2884", "2885", "5880", "2892", "2880", "2357", "2379", "3008",
-    "6669", "2345", "3034", "2883", "2887", "2890", "5876", "2301", "2412", "3037",
-    "2327", "2002", "1101", "1216", "2395", "3661", "2408", "2377", "2308", "2356",
-    "3045", "4904", "2409", "3481", "2324", "2353", "2371", "3035", "6415", "2383",
-    "3533", "2360", "2312", "1301", "1303", "1326", "2801", "2834", "5871", "9910",
-    "9904", "2912", "2207", "2603", "2609", "2615", "2618", "2610", "1402", "2105",
-    "1102", "1504", "1519", "1513", "1503", "3017", "6278", "2368", "3702", "6239",
-    "3019", "2474", "2352", "2449", "3583", "8046", "6176", "2451", "5483", "6488",
-    "3105", "8299", "3293", "3529", "6510", "4966", "5269", "3529", "8069", "6271"
-]
-
 # 自動獲取全台股清單與基本資訊 (代號、名稱、產業)
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_info():
@@ -126,16 +112,35 @@ def run_strategy(ticker, name, group):
 # 網頁控制台
 st.sidebar.header("🔍 全自動選股控制台")
 
-market_choice = st.sidebar.radio("選擇掃描範圍", ["市值前 100 大熱門權值股", "全台股 (上市+上櫃，約 1800+ 支)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支)"])
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     stocks_info = get_all_tw_stocks_info()
+    all_tickers = list(stocks_info.keys())
     
-    if market_choice == "市值前 100 大熱門權值股":
-        # 精準配對前 100 大權值股
-        target_tickers = [ticker for ticker, info in stocks_info.items() if info['code'] in TOP_100_CODES]
+    if market_choice == "成交金額熱門前 150 大":
+        st.info("正在計算全市場最新成交金額排序，挑選前 150 大熱門標的...")
+        
+        # 動態獲取全台股最新一日行情以計算成交金額 (收盤價 × 成交量)
+        try:
+            download_df = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
+            if 'Close' in download_df and 'Volume' in download_df:
+                latest_close = download_df['Close'].iloc[-1]
+                latest_vol = download_df['Volume'].iloc[-1]
+                turnover = latest_close * latest_vol  # 計算成交金額
+                
+                # 排序並取前 150 檔最高成交金額的股票
+                top_turnover_tickers = turnover.sort_values(ascending=False).head(150).index.tolist()
+                target_tickers = [t for t in top_turnover_tickers if t in stocks_info]
+            else:
+                target_tickers = all_tickers[:150]
+        except Exception:
+            target_tickers = all_tickers[:150]
+            
+        if not target_tickers:
+            target_tickers = all_tickers[:150]
     else:
-        target_tickers = list(stocks_info.keys())
+        target_tickers = all_tickers
         
     st.info(f"正在全自動掃描 {len(target_tickers)} 支台灣股票，請稍候...")
     

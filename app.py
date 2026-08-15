@@ -12,7 +12,7 @@ st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="
 st.title("📈 台股全自動選股雷達 (全台股掃描)")
 st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 60日突破 + W底型態 + 1.1倍放量 + 成交量>1000張 的強勢標的")
 
-# 自動獲取全台股清單與基本資訊
+# 自動獲取全台股清單與基本資訊 (代號、名稱、產業)
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_info():
     stocks_info = {}
@@ -26,44 +26,17 @@ def get_all_tw_stocks_info():
             }
     return stocks_info
 
-# 畫出帶有 W 底標示的 K 線圖
-def plot_stock_chart(ticker, df_day, w_info=None):
+# 標準 K 線圖 (包含 20日與 60日均線及成交量)
+def plot_stock_chart(ticker, df_day):
     plot_df = df_day.iloc[-90:].copy()
     if isinstance(plot_df.columns, pd.MultiIndex):
         plot_df.columns = plot_df.columns.get_level_values(0)
-    
-    # 建立畫圖的額外標示 (W底折線)
-    addplots = []
-    if w_info:
-        # 建立一條預設為 NaN 的序列，用於繪製 W 底連結線
-        w_line = pd.Series(index=plot_df.index, data=np.nan)
-        
-        # 取得關鍵點的日期與價格
-        p1_date = w_info['p1_date']
-        neck_date = w_info['neck_date']
-        p2_date = w_info['p2_date']
-        latest_date = plot_df.index[-1]
-        
-        # 設定轉折點數值
-        if p1_date in w_line.index: w_line.loc[p1_date] = w_info['p1_val']
-        if neck_date in w_line.index: w_line.loc[neck_date] = w_info['neck_val']
-        if p2_date in w_line.index: w_line.loc[p2_date] = w_info['p2_val']
-        w_line.loc[latest_date] = plot_df['Close'].iloc[-1]
-        
-        # 插值連線形成 W 字軌跡
-        w_line = w_line.interpolate(method='time')
-        
-        # 新增 W 底紅色虛線軌跡
-        addplots.append(
-            mpf.make_addplot(w_line, color='crimson', width=2.5, linestyle='--')
-        )
         
     fig, ax = mpf.plot(
         plot_df,
         type='candle',
         style='yahoo',
-        addplot=addplots if addplots else None,
-        title=f"\n{ticker} - K-Chart (Red Dashed Line = W Bottom Pattern)",
+        title=f"\n{ticker} - K-Chart",
         ylabel='Price (TWD)',
         volume=True,
         ylabel_lower='Volume',
@@ -106,34 +79,22 @@ def run_strategy(ticker, name, group):
         if not (latest_close >= np.max(df_day['High'].values.flatten()[-60:-1])):
             return None
         
-        # 條件 3: W 底型態辨識與關鍵點定位
+        # 條件 3: W 底型態數學邏輯
         lows = df_day['Low'].values.flatten()[-60:]
-        highs = df_day['High'].values.flatten()[-60:]
-        dates = df_day.index[-60:]
-        
-        min1_rel = np.argmin(lows[:30])
-        min2_rel = 30 + np.argmin(lows[30:-5])
-        neck_rel = min1_rel + np.argmax(highs[min1_rel:min2_rel])
-        
-        foot1, foot2 = lows[min1_rel], lows[min2_rel]
-        neck_high = highs[neck_rel]
-        
+        min1_idx = np.argmin(lows[:30])
+        min2_idx = 30 + np.argmin(lows[30:-5])
+        neck_high = np.max(df_day['High'].values.flatten()[-60:][min1_idx:min2_idx])
+        foot1, foot2 = lows[min1_idx], lows[min2_idx]
         cond3 = (abs(foot1 - foot2) / foot1 < 0.04) and (latest_close > neck_high)
         
         if cond3:
-            w_info = {
-                "p1_date": dates[min1_rel], "p1_val": foot1,
-                "neck_date": dates[neck_rel], "neck_val": neck_high,
-                "p2_date": dates[min2_rel], "p2_val": foot2
-            }
             return {
                 "ticker": ticker,
                 "name": name,
                 "group": group,
                 "df_day": df_day,
                 "close": round(float(latest_close), 2),
-                "volume": int(latest_vol_lots),
-                "w_info": w_info
+                "volume": int(latest_vol_lots)
             }
     except Exception:
         return None
@@ -174,7 +135,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
         st.subheader(f"✅ 符合 5 大強勢條件的標的 (共 {len(matches)} 支)")
         for m in matches:
             st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 收盤價：**{m['close']}** 元 ｜ 成交量：**{m['volume']}** 張")
-            plot_stock_chart(m['ticker'], m['df_day'], m['w_info'])
+            plot_stock_chart(m['ticker'], m['df_day'])
             st.divider()
     else:
         st.warning("ℹ️ 今日全台股市場中，暫無完全符合所有 5 個條件的股票。")

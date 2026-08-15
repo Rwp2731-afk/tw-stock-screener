@@ -56,9 +56,57 @@ def plot_stock_chart(ticker, df_day):
     )
     st.pyplot(fig)
 
+# 單一股票策略運算
+def check_strategy(df_day, df_week):
+    try:
+        if df_day is None or df_week is None:
+            return False, 0, 0
+            
+        df_day = df_day.dropna()
+        df_week = df_week.dropna()
+        
+        if len(df_day) < 100 or len(df_week) < 20:
+            return False, 0, 0
+            
+        close_day = df_day['Close'].values.flatten()
+        vol_day = df_day['Volume'].values.flatten()
+        close_week = df_week['Close'].values.flatten()
+        
+        # 條件 1: 20週 MA 之上
+        ma20_week = pd.Series(close_week).rolling(20).mean().iloc[-1]
+        if not (close_week[-1] > ma20_week):
+            return False, 0, 0
+            
+        # 條件 5: 成交量 >= 1000張
+        latest_vol_lots = vol_day[-1] / 1000
+        if latest_vol_lots < 1000:
+            return False, 0, 0
+            
+        # 條件 4: 放大量 (>= 20日均量 1.1倍)
+        ma20_vol = pd.Series(vol_day).rolling(20).mean().iloc[-1]
+        if not (vol_day[-1] >= (ma20_vol * 1.1)):
+            return False, 0, 0
+            
+        # 條件 2: 突破 40日新高
+        latest_close = close_day[-1]
+        if not (latest_close >= np.max(df_day['High'].values.flatten()[-40:-1])):
+            return False, 0, 0
+            
+        # 條件 3: W 底型態邏輯 (6%容錯)
+        lows = df_day['Low'].values.flatten()[-60:]
+        min1_idx = np.argmin(lows[:30])
+        min2_idx = 30 + np.argmin(lows[30:-5])
+        neck_high = np.max(df_day['High'].values.flatten()[-60:][min1_idx:min2_idx])
+        foot1, foot2 = lows[min1_idx], lows[min2_idx]
+        
+        if (abs(foot1 - foot2) / foot1 < 0.06) and (latest_close > neck_high):
+            return True, round(float(latest_close), 2), int(latest_vol_lots)
+    except Exception:
+        return False, 0, 0
+    return False, 0, 0
+
 # 網頁控制台
 st.sidebar.header("🔍 全自動選股控制台")
-
 market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支)"])
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
@@ -66,92 +114,55 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     all_tickers = list(stocks_info.keys())
     
     if market_choice == "成交金額熱門前 150 大":
-        st.info("正在計算全市場最新成交金額排序，挑選前 150 大熱門標的...")
-        try:
-            download_df = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
-            if 'Close' in download_df and 'Volume' in download_df:
-                latest_close = download_df['Close'].iloc[-1]
-                latest_vol = download_df['Volume'].iloc[-1]
-                turnover = latest_close * latest_vol
-                top_turnover_tickers = turnover.sort_values(ascending=False).head(150).index.tolist()
-                target_tickers = [t for t in top_turnover_tickers if t in stocks_info]
-            else:
-                target_tickers = all_tickers[:150]
-        except Exception:
-            target_tickers = all_tickers[:150]
+        target_tickers = all_tickers[:150]
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在批量下載 {len(target_tickers)} 支股票數據（100% 不當機引擎）...")
-    
-    # ⚡ 1. 批量一次性打包下載所有 K 線數據（只發起 1 次請求，不被 Yahoo 鎖 IP）
-    all_data_day = yf.download(target_tickers, period="1y", interval="1d", progress=False, auto_adjust=True, group_by='ticker')
-    all_data_week = yf.download(target_tickers, period="2y", interval="1wk", progress=False, auto_adjust=True, group_by='ticker')
-    
-    st.info("數據獲取完成，正在進場記憶體邏輯運算...")
+    st.info(f"正在安全分批掃描 {len(target_tickers)} 支股票...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
-    total_count = len(target_tickers)
     
-    # ⚡ 2. 本地記憶體高速邏輯計算
-    for idx, ticker in enumerate(target_tickers):
+    # ⚡ 分批處理（每批 100 支，並強制關閉多線程 threads=False）
+    batch_size = 100
+    total_tickers = len(target_tickers)
+    
+    for i in range(0, total_tickers, batch_size):
+        batch_tickers = target_tickers[i:i + batch_size]
+        
         try:
-            # 取得單一股票的 DataFrame
-            if len(target_tickers) == 1:
-                df_day = all_data_day
-                df_week = all_data_week
-            else:
-                df_day = all_data_day.get(ticker)
-                df_week = all_data_week.get(ticker)
-                
-            if df_day is not None and df_week is not None and len(df_day.dropna()) >= 100 and len(df_week.dropna()) >= 20:
-                df_day = df_day.dropna()
-                df_week = df_week.dropna()
-                
-                close_day = df_day['Close'].values.flatten()
-                vol_day = df_day['Volume'].values.flatten()
-                close_week = df_week['Close'].values.flatten()
-                
-                # 條件 1: 20週 MA 之上
-                ma20_week = pd.Series(close_week).rolling(20).mean().iloc[-1]
-                if close_week[-1] > ma20_week:
-                    
-                    # 條件 5: 成交量 >= 1000張
-                    latest_vol_lots = vol_day[-1] / 1000
-                    if latest_vol_lots >= 1000:
+            # 強制關閉內部多線程（threads=False），解決被 Streamlit 系統阻斷的問題
+            data_day = yf.download(batch_tickers, period="1y", interval="1d", progress=False, auto_adjust=True, group_by='ticker', threads=False)
+            data_week = yf.download(batch_tickers, period="2y", interval="1wk", progress=False, auto_adjust=True, group_by='ticker', threads=False)
+            
+            for ticker in batch_tickers:
+                try:
+                    if len(batch_tickers) == 1:
+                        df_d, df_w = data_day, data_week
+                    else:
+                        df_d = data_day.get(ticker)
+                        df_w = data_week.get(ticker)
                         
-                        # 條件 4: 放大量 (>= 20日均量 1.1倍)
-                        ma20_vol = pd.Series(vol_day).rolling(20).mean().iloc[-1]
-                        if vol_day[-1] >= (ma20_vol * 1.1):
-                            
-                            # 條件 2: 突破 40日新高
-                            latest_close = close_day[-1]
-                            if latest_close >= np.max(df_day['High'].values.flatten()[-40:-1]):
-                                
-                                # 條件 3: W 底型態邏輯 (6%容錯)
-                                lows = df_day['Low'].values.flatten()[-60:]
-                                min1_idx = np.argmin(lows[:30])
-                                min2_idx = 30 + np.argmin(lows[30:-5])
-                                neck_high = np.max(df_day['High'].values.flatten()[-60:][min1_idx:min2_idx])
-                                foot1, foot2 = lows[min1_idx], lows[min2_idx]
-                                
-                                if (abs(foot1 - foot2) / foot1 < 0.06) and (latest_close > neck_high):
-                                    matches.append({
-                                        "ticker": ticker,
-                                        "name": stocks_info[ticker]['name'],
-                                        "group": stocks_info[ticker]['group'],
-                                        "df_day": df_day,
-                                        "close": round(float(latest_close), 2),
-                                        "volume": int(latest_vol_lots)
-                                    })
+                    is_match, close_val, vol_val = check_strategy(df_d, df_w)
+                    if is_match:
+                        matches.append({
+                            "ticker": ticker,
+                            "name": stocks_info[ticker]['name'],
+                            "group": stocks_info[ticker]['group'],
+                            "df_day": df_d,
+                            "close": close_val,
+                            "volume": vol_val
+                        })
+                except Exception:
+                    pass
         except Exception:
             pass
             
-        progress_bar.progress((idx + 1) / total_count)
-        status_text.text(f"已比對篩選: {idx + 1}/{total_count} 支標的...")
-                
+        current_progress = min((i + batch_size) / total_tickers, 1.0)
+        progress_bar.progress(current_progress)
+        status_text.text(f"已安全處理進度: {min(i + batch_size, total_tickers)}/{total_tickers} 支標的...")
+        
     status_text.text("掃描完畢！")
     st.success("🎉 全自動掃描完成！")
     

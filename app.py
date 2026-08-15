@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
 st.title("📈 台股全自動選股雷達")
-st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 40日突破 + W底型態(6%容錯) + 1.1倍放量 + 成交量>1000張 的強勢標的")
+st.caption("自動獲取台股熱門標的，掃描符合：20週MA之上 + 40日突破 + W底型態(6%容錯) + 1.1倍放量 + 成交量>1000張 的強勢標的")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -107,7 +107,7 @@ def check_strategy(df_day, df_week):
 
 # 網頁控制台
 st.sidebar.header("🔍 全自動選股控制台")
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股精選 (過濾成交量，高效掃描)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全市場活躍標的精選 (約 300 支)"])
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     stocks_info = get_all_tw_stocks_info()
@@ -116,16 +116,15 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     if market_choice == "成交金額熱門前 150 大":
         target_tickers = all_tickers[:150]
     else:
-        # 只挑選代碼開頭較熱門的區間，避免全量請求導致超時
-        target_tickers = all_tickers
+        target_tickers = all_tickers[:300]
         
-    st.info(f"正在精確掃描 {len(target_tickers)} 支股票...")
+    st.info(f"正在掃描 {len(target_tickers)} 支市場熱門標的...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
     
-    # ⚡ 分批 50 支處理，每完成一批立刻刷新進度條
+    # ⚡ 分批 50 支，確保網頁即時回應
     batch_size = 50
     total_tickers = len(target_tickers)
     

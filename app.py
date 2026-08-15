@@ -12,6 +12,20 @@ st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="
 st.title("📈 台股全自動選股雷達 (全台股掃描)")
 st.caption("自動獲取全台上市上櫃股票清單，掃描符合：20週MA之上 + 40日突破 + W底型態(6%容錯) + 1.1倍放量 + 成交量>1000張 的強勢標的")
 
+# 台股真實市值前 100 大精選權值股清單
+TOP_100_CODES = [
+    "2330", "2317", "2454", "2308", "2382", "2881", "2882", "3711", "2303", "2891",
+    "2886", "3231", "2884", "2885", "5880", "2892", "2880", "2357", "2379", "3008",
+    "6669", "2345", "3034", "2883", "2887", "2890", "5876", "2301", "2412", "3037",
+    "2327", "2002", "1101", "1216", "2395", "3661", "2408", "2377", "2308", "2356",
+    "3045", "4904", "2409", "3481", "2324", "2353", "2371", "3035", "6415", "2383",
+    "3533", "2360", "2312", "1301", "1303", "1326", "2801", "2834", "5871", "9910",
+    "9904", "2912", "2207", "2603", "2609", "2615", "2618", "2610", "1402", "2105",
+    "1102", "1504", "1519", "1513", "1503", "3017", "6278", "2368", "3702", "6239",
+    "3019", "2474", "2352", "2449", "3583", "8046", "6176", "2451", "5483", "6488",
+    "3105", "8299", "3293", "3529", "6510", "4966", "5269", "3529", "8069", "6271"
+]
+
 # 自動獲取全台股清單與基本資訊 (代號、名稱、產業)
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_info():
@@ -21,6 +35,7 @@ def get_all_tw_stocks_info():
             suffix = '.TW' if info.market == '上市' else '.TWO'
             ticker = f"{code}{suffix}"
             stocks_info[ticker] = {
+                "code": code,
                 "name": info.name,
                 "group": info.group if info.group else "其他"
             }
@@ -32,11 +47,9 @@ def plot_stock_chart(ticker, df_day):
     if isinstance(plot_df.columns, pd.MultiIndex):
         plot_df.columns = plot_df.columns.get_level_values(0)
         
-    # 計算 20日均線與 100日均線 (20週MA)
     ma20 = plot_df['Close'].rolling(20).mean()
     ma100 = plot_df['Close'].rolling(100).mean()
     
-    # 客製化均線顏色: 20日為藍色, 100日(20週)為紫色
     addplots = [
         mpf.make_addplot(ma20, color='dodgerblue', width=1.5),
         mpf.make_addplot(ma100, color='purple', width=1.8)
@@ -84,12 +97,12 @@ def run_strategy(ticker, name, group):
         if not (vol_day[-1] >= (ma20_vol * 1.1)):
             return None
         
-        # 條件 2: 突破 40日新高 (由原本 60 日微調為 40 日，約 2 個月)
+        # 條件 2: 突破 40日新高
         latest_close = close_day[-1]
         if not (latest_close >= np.max(df_day['High'].values.flatten()[-40:-1])):
             return None
         
-        # 條件 3: W 底型態數學邏輯 (雙腳容錯率由 4% 放寬至 6%)
+        # 條件 3: W 底型態數學邏輯 (6%容錯)
         lows = df_day['Low'].values.flatten()[-60:]
         min1_idx = np.argmin(lows[:30])
         min2_idx = 30 + np.argmin(lows[30:-5])
@@ -113,16 +126,16 @@ def run_strategy(ticker, name, group):
 # 網頁控制台
 st.sidebar.header("🔍 全自動選股控制台")
 
-market_choice = st.sidebar.radio("選擇掃描範圍", ["熱門前 100 支權值股", "全台股 (上市+上櫃，約 1800+ 支)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["市值前 100 大熱門權值股", "全台股 (上市+上櫃，約 1800+ 支)"])
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     stocks_info = get_all_tw_stocks_info()
-    all_tickers = list(stocks_info.keys())
     
-    if market_choice == "熱門前 100 支權值股":
-        target_tickers = all_tickers[:100]
+    if market_choice == "市值前 100 大熱門權值股":
+        # 精準配對前 100 大權值股
+        target_tickers = [ticker for ticker, info in stocks_info.items() if info['code'] in TOP_100_CODES]
     else:
-        target_tickers = all_tickers
+        target_tickers = list(stocks_info.keys())
         
     st.info(f"正在全自動掃描 {len(target_tickers)} 支台灣股票，請稍候...")
     
@@ -148,4 +161,4 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             plot_stock_chart(m['ticker'], m['df_day'])
             st.divider()
     else:
-        st.warning("ℹ️ 今日全台股市場中，暫無完全符合所有 5 個條件的股票。")
+        st.warning("ℹ️ 今日該範圍內，暫無完全符合所有 5 個條件的股票。")

@@ -11,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (結合股本過濾與週20MA停損紀律)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數、股本大小與週 20MA 停損紅線進行強勢標的掃描")
+st.title("📈 台股全自動選股雷達 (5日均量爆量過濾 + 週20MA停損紀律)")
+st.caption("自動獲取全台上市上櫃股票清單，依據 5 日均量比對、動態技術參數、股本大小與週 20MA 停損紅線進行強勢標的掃描")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -91,7 +91,7 @@ def plot_dividend_bar_chart(div_df):
 # 單一股票策略運算邏輯
 def run_strategy(ticker, name, group, capital, params):
     try:
-        # 條件 0: 股本過濾 (twstock 的 capital 單位為「元」，所以 20 億 = 2,000,000,000)
+        # 條件 0: 股本過濾 (20 億 = 2,000,000,000 元)
         min_capital_yuan = params['min_capital'] * 100_000_000
         if capital < min_capital_yuan:
             return None
@@ -117,8 +117,8 @@ def run_strategy(ticker, name, group, capital, params):
         if latest_vol_lots < 1000:
             return None
         
-        # 條件 3: 放大量對比
-        ma_vol_val = pd.Series(vol_day).rolling(20).mean().iloc[-1]
+        # 條件 3: 放大量對比 (改為對比 5 日均量)
+        ma_vol_val = pd.Series(vol_day).rolling(5).mean().iloc[-1]
         if not (vol_day[-1] >= (ma_vol_val * params['vol_multiplier'])):
             return None
         
@@ -183,7 +183,7 @@ st.sidebar.subheader("⚙️ 策略參數動態微調")
 
 params = {
     "min_capital": st.sidebar.slider("最低股本門檻 (億元)", 5.0, 100.0, 20.0, 5.0),
-    "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.1, 0.1),
+    "vol_multiplier": st.sidebar.slider("放量倍數 (對比5日均量)", 1.0, 3.0, 1.2, 0.1),
     "w_tolerance": st.sidebar.slider("W底左右腳容錯率 (%)", 1.0, 15.0, 6.0, 0.5) / 100.0,
     "breakout_days": st.sidebar.number_input("突破幾日內創高", 10, 60, 40),
     "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA)", 10, 40, 20)

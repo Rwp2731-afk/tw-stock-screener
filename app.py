@@ -10,8 +10,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (全台股極速掃描)")
-st.caption("自動獲取全台上市上櫃股票清單，依據側邊欄動態參數掃描強勢標的")
+st.title("📈 台股全自動選股雷達 (結合歷年股利分析)")
+st.caption("自動獲取全台上市上櫃股票清單，依據側邊欄動態參數與股利條件掃描強勢標的")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -57,11 +57,12 @@ def plot_stock_chart(ticker, df_day):
     )
     st.pyplot(fig)
 
-# 單一股票策略運算邏輯 (帶入動態參數)
+# 單一股票策略運算邏輯 (加入歷年股利分析)
 def run_strategy(ticker, name, group, params):
     try:
-        df_day = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
-        df_week = yf.download(ticker, period="2y", interval="1wk", progress=False, auto_adjust=True)
+        stock_obj = yf.Ticker(ticker)
+        df_day = stock_obj.history(period="1y", auto_adjust=True)
+        df_week = stock_obj.history(period="2y", interval="1wk", auto_adjust=True)
         
         if len(df_day) < 100 or len(df_week) < params['ma_week']:
             return None
@@ -100,18 +101,40 @@ def run_strategy(ticker, name, group, params):
         foot1, foot2 = lows[min1_idx], lows[min2_idx]
         cond_w = (abs(foot1 - foot2) / foot1 < tolerance) and (latest_close > neck_high)
         
-        if cond_w:
-            return {
-                "ticker": ticker,
-                "name": name,
-                "group": group,
-                "df_day": df_day,
-                "close": round(float(latest_close), 2),
-                "volume": int(latest_vol_lots)
-            }
+        if not cond_w:
+            return None
+
+        # ── 附加功能：取得歷年股利與計算平均殖利率 ──
+        dividends = stock_obj.dividends
+        total_div_3y = 0.0
+        avg_div = 0.0
+        div_yield = 0.0
+        
+        if not dividends.empty:
+            # 取最近三年的股利總和
+            recent_divs = dividends.last('3Y')
+            if not recent_divs.empty:
+                total_div_3y = float(recent_divs.sum())
+                avg_div = round(total_div_3y / 3.0, 2)
+                if latest_close > 0:
+                    div_yield = round((avg_div / latest_close) * 100, 2)
+        
+        # 如果勾選了「必須有近三年發放股利」，在此過濾
+        if params['require_dividend'] and avg_div <= 0:
+            return None
+
+        return {
+            "ticker": ticker,
+            "name": name,
+            "group": group,
+            "df_day": df_day,
+            "close": round(float(latest_close), 2),
+            "volume": int(latest_vol_lots),
+            "avg_div": avg_div,
+            "div_yield": div_yield
+        }
     except Exception:
         return None
-    return None
 
 # ================= 網頁控制台 (Sidebar) =================
 st.sidebar.header("🔍 全自動選股控制台")
@@ -121,13 +144,13 @@ market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 1
 st.sidebar.divider()
 st.sidebar.subheader("⚙️ 策略參數動態微調")
 
-# 動態參數控制滑桿與輸入框
 params = {
     "min_vol_lots": st.sidebar.slider("最低成交量門檻 (張)", 500, 5000, 1000, 100),
     "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.1, 0.1),
     "w_tolerance": st.sidebar.slider("W底左右腳容錯率 (%)", 1.0, 15.0, 6.0, 0.5) / 100.0,
     "breakout_days": st.sidebar.number_input("突破幾日內創高", 10, 60, 40),
-    "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA)", 10, 40, 20)
+    "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA)", 10, 40, 20),
+    "require_dividend": st.sidebar.checkbox("僅顯示近年有發放股利的標的", value=False)
 }
 
 st.sidebar.divider()
@@ -153,13 +176,12 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票，套用動態參數中...")
+    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票，同步帶入股利數據中...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
     
-    # ⚡ 多線程平行計算 (開啟 16 個併行線程)
     completed_count = 0
     total_count = len(target_tickers)
     
@@ -184,10 +206,11 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     st.success("🎉 全自動極速掃描完成！")
     
     if matches:
-        st.subheader(f"✅ 符合目前動態參數條件的標的 (共 {len(matches)} 支)")
+        st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
         for m in matches:
-            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 收盤價：**{m['close']}** 元 ｜ 成交量：**{m['volume']}** 張")
+            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
+            st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 ｜ 💵 近年平均年配息：**{m['avg_div']}** 元 (約當殖利率：**{m['div_yield']}%**)")
             plot_stock_chart(m['ticker'], m['df_day'])
             st.divider()
     else:
-        st.warning("ℹ️ 在目前的參數設定下，暫無完全符合條件的股票。試著在側邊欄放寬條件（例如降低成交量或調高容錯率）看看吧！")
+        st.warning("ℹ️ 在目前的參數與股利設定下，暫無符合條件的股票。")

@@ -10,8 +10,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (結合近十年股利趨勢圖)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與近十年完整配息紀錄與趨勢圖掃描強勢標的")
+st.title("📈 台股全自動選股雷達 (結合近十年股利長條圖)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與近十年純靜態配息長條圖掃描強勢標的")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -104,7 +104,7 @@ def run_strategy(ticker, name, group, params):
         if not cond_w:
             return None
 
-        # ── 取得近十年完整股利發放數據（依年份排序由遠到近，利於畫圖） ──
+        # ── 取得近十年完整股利發放數據 ──
         dividends = stock_obj.dividends
         div_history_df = pd.DataFrame(columns=["年份", "現金股利"])
         
@@ -114,7 +114,6 @@ def run_strategy(ticker, name, group, params):
             div_df['Year'] = div_df.index.year
             yearly_div = div_df.groupby('Year')['Dividend'].sum().reset_index()
             
-            # 取最近 10 年，並改為由舊到新排序，方便折線圖呈現時間軸走向
             yearly_div = yearly_div.sort_values(by='Year', ascending=True).tail(10)
             yearly_div.columns = ["年份", "現金股利"]
             yearly_div["現金股利"] = yearly_div["現金股利"].round(2)
@@ -205,14 +204,11 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
-            # 呈現近十年股利發放波動圖與明細表
+            # 呈現近十年現金股利長條圖與明細表 (使用 st.bar_chart 取代折線圖，徹底根除互動黑框)
             if not m['div_history'].empty:
-                st.markdown("**📊 近十年現金股利波動趨勢與明細：**")
-                # 繪製直覺的折線波動圖 (以年份為 X 軸，現金股利為 Y 軸)
+                st.markdown("**📊 近十年現金股利發放長條圖與明細：**")
                 chart_data = m['div_history'].set_index("年份")
-                st.line_chart(chart_data)
-                
-                # 同時保留下方表格供對照細看
+                st.bar_chart(chart_data)
                 st.dataframe(chart_data.T, use_container_width=True)
             else:
                 st.info("該標的無近期股利發放紀錄")

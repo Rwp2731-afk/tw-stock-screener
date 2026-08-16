@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import mplfinance as mpf
 import twstock
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.filterwarnings('ignore')
 
@@ -152,7 +151,7 @@ def run_strategy(ticker, name, group, capital, params):
 
 # ================= 網頁控制台 =================
 st.sidebar.header("🔍 全自動選股控制台")
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (約 1800+ 支極速掃描)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (約 1800+ 支)"])
 params = {
     "min_capital": st.sidebar.slider("最低股本門檻 (億元)", 5.0, 100.0, 20.0, 5.0),
     "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.2, 0.1),
@@ -182,41 +181,25 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票...")
+    st.info(f"正在掃描 {len(target_tickers)} 支股票...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
     
-    completed_count = 0
     total_count = len(target_tickers)
-    
-    with ThreadPoolExecutor(max_workers=16) as executor:
-        future_to_ticker = {
-            executor.submit(
-                run_strategy, 
-                ticker, 
-                stocks_info[ticker]['name'], 
-                stocks_info[ticker]['group'], 
-                stocks_info[ticker]['capital'], 
-                params
-            ): ticker 
-            for ticker in target_tickers
-        }
-        
-        for future in as_completed(future_to_ticker):
-            ticker = future_to_ticker[future]
-            res = future.result()
-            if res:
-                matches.append(res)
+    for idx, ticker in enumerate(target_tickers):
+        info = stocks_info[ticker]
+        res = run_strategy(ticker, info['name'], info['group'], info['capital'], params)
+        if res:
+            matches.append(res)
             
-            completed_count += 1
-            if completed_count % 10 == 0 or completed_count == total_count:
-                progress_bar.progress(completed_count / total_count)
-                status_text.text(f"已極速掃描: {completed_count}/{total_count} 支標的...")
+        if (idx + 1) % 10 == 0 or (idx + 1) == total_count:
+            progress_bar.progress((idx + 1) / total_count)
+            status_text.text(f"已掃描進度: {idx + 1}/{total_count} 支標的...")
                 
     status_text.text("掃描完畢！")
-    st.success("🎉 全自動極速掃描完成！")
+    st.success("🎉 掃描完成！")
     
     if matches:
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")

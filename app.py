@@ -11,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (結合週20MA停損紀律控管)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描")
+st.title("📈 台股全自動選股雷達 (結合股本過濾與週20MA停損紀律)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數、股本大小與週 20MA 停損紅線進行強勢標的掃描")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -25,7 +25,8 @@ def get_all_tw_stocks_info():
             stocks_info[ticker] = {
                 "code": code,
                 "name": info.name,
-                "group": info.group if info.group else "其他"
+                "group": info.group if info.group else "其他",
+                "capital": info.capital if hasattr(info, 'capital') and info.capital else 0  # 股本 (元)
             }
     return stocks_info
 
@@ -61,7 +62,7 @@ def plot_stock_chart(ticker, df_day, ma20_val):
     st.pyplot(fig)
     plt.close(fig)
 
-# 繪製完全靜態的股利長條圖 (Matplotlib 產出，絕不彈出互動框)
+# 繪製完全靜態的股利長條圖 (Matplotlib 產出)
 def plot_dividend_bar_chart(div_df):
     fig, ax = plt.subplots(figsize=(10, 3.5))
     years = div_df['年份'].astype(str).tolist()
@@ -88,8 +89,13 @@ def plot_dividend_bar_chart(div_df):
     plt.close(fig)
 
 # 單一股票策略運算邏輯
-def run_strategy(ticker, name, group, params):
+def run_strategy(ticker, name, group, capital, params):
     try:
+        # 條件 0: 股本過濾 (twstock 的 capital 單位為「元」，所以 20 億 = 2,000,000,000)
+        min_capital_yuan = params['min_capital'] * 100_000_000
+        if capital < min_capital_yuan:
+            return None
+
         stock_obj = yf.Ticker(ticker)
         df_day = stock_obj.history(period="1y", auto_adjust=True)
         df_week = stock_obj.history(period="2y", interval="1wk", auto_adjust=True)
@@ -136,6 +142,7 @@ def run_strategy(ticker, name, group, params):
 
         # 計算目前現價距離週 20MA 停損線的風險空間 (%)
         risk_pct = ((latest_close - ma_week_val) / latest_close) * 100
+        capital_yi = round(capital / 100_000_000, 2)
 
         # 取得近十年完整股利發放數據
         dividends = stock_obj.dividends
@@ -155,6 +162,7 @@ def run_strategy(ticker, name, group, params):
             "ticker": ticker,
             "name": name,
             "group": group,
+            "capital_yi": capital_yi,
             "df_day": df_day,
             "close": round(float(latest_close), 2),
             "volume": int(latest_vol_lots),
@@ -174,6 +182,7 @@ st.sidebar.divider()
 st.sidebar.subheader("⚙️ 策略參數動態微調")
 
 params = {
+    "min_capital": st.sidebar.slider("最低股本門檻 (億元)", 5.0, 100.0, 20.0, 5.0),
     "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.1, 0.1),
     "w_tolerance": st.sidebar.slider("W底左右腳容錯率 (%)", 1.0, 15.0, 6.0, 0.5) / 100.0,
     "breakout_days": st.sidebar.number_input("突破幾日內創高", 10, 60, 40),
@@ -214,7 +223,14 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     
     with ThreadPoolExecutor(max_workers=16) as executor:
         future_to_ticker = {
-            executor.submit(run_strategy, ticker, stocks_info[ticker]['name'], stocks_info[ticker]['group'], params): ticker 
+            executor.submit(
+                run_strategy, 
+                ticker, 
+                stocks_info[ticker]['name'], 
+                stocks_info[ticker]['group'], 
+                stocks_info[ticker]['capital'], 
+                params
+            ): ticker 
             for ticker in target_tickers
         }
         
@@ -235,7 +251,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     if matches:
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
         for m in matches:
-            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
+            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 股本：**{m['capital_yi']} 億**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
             # 呈現停損風險評估資訊

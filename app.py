@@ -13,20 +13,22 @@ st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="
 st.title("📈 台股全自動選股雷達 (穩定版)")
 st.caption("自動獲取全台上市上櫃股票清單，依據 20 日均量比對、股本過濾與週 20MA 停損紅線進行掃描")
 
-# 自動獲取全台股清單與基本資訊
-@st.cache_data(ttl=86400)
-def get_all_tw_stocks_info():
+# 安全取得台股清單（完全避開快取與內部線程衝突）
+def get_safe_stocks_info():
     stocks_info = {}
-    for code, info in twstock.codes.items():
-        if info.type == '股票' and info.market in ['上市', '上櫃']:
-            suffix = '.TW' if info.market == '上市' else '.TWO'
-            ticker = f"{code}{suffix}"
-            stocks_info[ticker] = {
-                "code": code,
-                "name": info.name,
-                "group": info.group if info.group else "其他",
-                "capital": info.capital if hasattr(info, 'capital') and info.capital else 0
-            }
+    try:
+        for code, info in twstock.codes.items():
+            if info.type == '股票' and info.market in ['上市', '上櫃']:
+                suffix = '.TW' if info.market == '上市' else '.TWO'
+                ticker = f"{code}{suffix}"
+                stocks_info[ticker] = {
+                    "code": code,
+                    "name": info.name,
+                    "group": info.group if info.group else "其他",
+                    "capital": info.capital if hasattr(info, 'capital') and info.capital else 0
+                }
+    except Exception:
+        pass
     return stocks_info
 
 # 標準 K 線圖
@@ -105,7 +107,6 @@ def run_strategy(ticker, name, group, capital, params):
         if latest_vol_lots < 1000:
             return None
         
-        # 對比 20 日均量
         ma_vol_val = pd.Series(vol_day).rolling(20).mean().iloc[-1]
         if not (vol_day[-1] >= (ma_vol_val * params['vol_multiplier'])):
             return None
@@ -161,61 +162,64 @@ params = {
 }
 
 if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
-    stocks_info = get_all_tw_stocks_info()
+    stocks_info = get_safe_stocks_info()
     all_tickers = list(stocks_info.keys())
     
-    if market_choice == "成交金額熱門前 150 大":
-        st.info("正在計算全市場最新成交金額排序，挑選前 150 大熱門標的...")
-        try:
-            download_df = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
-            if 'Close' in download_df and 'Volume' in download_df:
-                latest_close = download_df['Close'].iloc[-1]
-                latest_vol = download_df['Volume'].iloc[-1]
-                turnover = latest_close * latest_vol
-                top_turnover_tickers = turnover.sort_values(ascending=False).head(150).index.tolist()
-                target_tickers = [t for t in top_turnover_tickers if t in stocks_info]
-            else:
+    if not all_tickers:
+        st.error("無法取得股票清單，請稍後再試。")
+    else:
+        if market_choice == "成交金額熱門前 150 大":
+            st.info("正在計算全市場最新成交金額排序，挑選前 150 大熱門標的...")
+            try:
+                download_df = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
+                if 'Close' in download_df and 'Volume' in download_df:
+                    latest_close = download_df['Close'].iloc[-1]
+                    latest_vol = download_df['Volume'].iloc[-1]
+                    turnover = latest_close * latest_vol
+                    top_turnover_tickers = turnover.sort_values(ascending=False).head(150).index.tolist()
+                    target_tickers = [t for t in top_turnover_tickers if t in stocks_info]
+                else:
+                    target_tickers = all_tickers[:150]
+            except Exception:
                 target_tickers = all_tickers[:150]
-        except Exception:
-            target_tickers = all_tickers[:150]
-    else:
-        target_tickers = all_tickers
+        else:
+            target_tickers = all_tickers
+            
+        st.info(f"正在掃描 {len(target_tickers)} 支股票...")
         
-    st.info(f"正在掃描 {len(target_tickers)} 支股票...")
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    matches = []
-    
-    total_count = len(target_tickers)
-    for idx, ticker in enumerate(target_tickers):
-        info = stocks_info[ticker]
-        res = run_strategy(ticker, info['name'], info['group'], info['capital'], params)
-        if res:
-            matches.append(res)
-            
-        progress_bar.progress((idx + 1) / total_count)
-        status_text.text(f"正在掃描: [{idx + 1}/{total_count}] {info['name']}...")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        matches = []
+        
+        total_count = len(target_tickers)
+        for idx, ticker in enumerate(target_tickers):
+            info = stocks_info[ticker]
+            res = run_strategy(ticker, info['name'], info['group'], info['capital'], params)
+            if res:
+                matches.append(res)
                 
-    status_text.text("掃描完畢！")
-    st.success("🎉 掃描完成！")
-    
-    if matches:
-        st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
-        for m in matches:
-            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 股本：**{m['capital_yi']} 億**")
-            st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
-            
-            risk_color = "red" if m['risk_pct'] < 3 else "green"
-            st.markdown(f"🛡️ **停損紅線 (週20MA)：{m['ma_week_val']} 元** ｜ ⚠️ **進場風險空間：<span style='color:{risk_color}'>{m['risk_pct']}%</span>** (跌破即觸發退場)", unsafe_allow_html=True)
-            
-            if not m['div_history'].empty:
-                st.markdown("**📊 近十年現金股利發放長條圖：**")
-                plot_dividend_bar_chart(m['div_history'])
-            else:
-                st.info("該標的無近期股利發放紀錄")
+            progress_bar.progress((idx + 1) / total_count)
+            status_text.text(f"正在掃描: [{idx + 1}/{total_count}] {info['name']}...")
+                    
+        status_text.text("掃描完畢！")
+        st.success("🎉 掃描完成！")
+        
+        if matches:
+            st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
+            for m in matches:
+                st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 股本：**{m['capital_yi']} 億**")
+                st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
                 
-            plot_stock_chart(m['ticker'], m['df_day'], m['ma_week_val'])
-            st.divider()
-    else:
-        st.warning("ℹ️ 在目前的參數設定下，暫無符合條件的股票。")
+                risk_color = "red" if m['risk_pct'] < 3 else "green"
+                st.markdown(f"🛡️ **停損紅線 (週20MA)：{m['ma_week_val']} 元** ｜ ⚠️ **進場風險空間：<span style='color:{risk_color}'>{m['risk_pct']}%</span>** (跌破即觸發退場)", unsafe_allow_html=True)
+                
+                if not m['div_history'].empty:
+                    st.markdown("**📊 近十年現金股利發放長條圖：**")
+                    plot_dividend_bar_chart(m['div_history'])
+                else:
+                    st.info("該標的無近期股利發放紀錄")
+                    
+                plot_stock_chart(m['ticker'], m['df_day'], m['ma_week_val'])
+                st.divider()
+        else:
+            st.warning("ℹ️ 在目前的參數設定下，暫無符合條件的股票。")

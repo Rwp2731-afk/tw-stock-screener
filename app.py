@@ -11,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (結合近十年靜態股利長條圖)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與近十年絕對固定之配息長條圖掃描強勢標的")
+st.title("📈 台股全自動選股雷達 (結合週20MA停損紀律控管)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -29,8 +29,8 @@ def get_all_tw_stocks_info():
             }
     return stocks_info
 
-# 標準 K 線圖
-def plot_stock_chart(ticker, df_day):
+# 標準 K 線圖（已加入週 20MA 紅色停損虛線）
+def plot_stock_chart(ticker, df_day, ma20_val):
     plot_df = df_day.iloc[-120:].copy()
     if isinstance(plot_df.columns, pd.MultiIndex):
         plot_df.columns = plot_df.columns.get_level_values(0)
@@ -40,7 +40,9 @@ def plot_stock_chart(ticker, df_day):
     
     addplots = [
         mpf.make_addplot(ma20, color='dodgerblue', width=1.5),
-        mpf.make_addplot(ma100, color='purple', width=1.8)
+        mpf.make_addplot(ma100, color='purple', width=1.8),
+        # 加入一條水平紅虛線作為停損警戒 (週 20MA)
+        mpf.make_addplot([ma20_val]*len(plot_df), color='red', linestyle='dashed', width=1.2)
     ]
     
     fig, ax = mpf.plot(
@@ -48,7 +50,7 @@ def plot_stock_chart(ticker, df_day):
         type='candle',
         style='yahoo',
         addplot=addplots,
-        title=f"\n{ticker} - K-Chart (Blue: 20MA / Purple: 100MA)",
+        title=f"\n{ticker} - Trend & Stop-Loss Level (Red Dashed: Weekly 20MA)",
         ylabel='Price (TWD)',
         volume=True,
         ylabel_lower='Volume',
@@ -57,6 +59,7 @@ def plot_stock_chart(ticker, df_day):
         returnfig=True
     )
     st.pyplot(fig)
+    plt.close(fig)
 
 # 繪製完全靜態的股利長條圖 (Matplotlib 產出，絕不彈出互動框)
 def plot_dividend_bar_chart(div_df):
@@ -66,12 +69,11 @@ def plot_dividend_bar_chart(div_df):
     
     bars = ax.bar(years, dividends, color='teal', alpha=0.85, width=0.6)
     
-    # 在長條上方直接標註數字，不用游標指也能看清
     for bar in bars:
         height = bar.get_height()
         ax.annotate(f'{height}',
                     xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 3),  # 3 points vertical offset
+                    xytext=(0, 3),
                     textcoords="offset points",
                     ha='center', va='bottom', fontsize=9)
                     
@@ -99,7 +101,7 @@ def run_strategy(ticker, name, group, params):
         vol_day = df_day['Volume'].values.flatten()
         close_week = df_week['Close'].values.flatten()
         
-        # 條件 1: 長期均線之上
+        # 條件 1: 長期週均線之上（同時作為停損基準）
         ma_week_val = pd.Series(close_week).rolling(params['ma_week']).mean().iloc[-1]
         if not (close_week[-1] > ma_week_val):
             return None
@@ -132,7 +134,10 @@ def run_strategy(ticker, name, group, params):
         if not cond_w:
             return None
 
-        # ── 取得近十年完整股利發放數據 ──
+        # 計算目前現價距離週 20MA 停損線的風險空間 (%)
+        risk_pct = ((latest_close - ma_week_val) / latest_close) * 100
+
+        # 取得近十年完整股利發放數據
         dividends = stock_obj.dividends
         div_history_df = pd.DataFrame(columns=["年份", "現金股利"])
         
@@ -141,7 +146,6 @@ def run_strategy(ticker, name, group, params):
             div_df = pd.DataFrame({'Dividend': dividends})
             div_df['Year'] = div_df.index.year
             yearly_div = div_df.groupby('Year')['Dividend'].sum().reset_index()
-            
             yearly_div = yearly_div.sort_values(by='Year', ascending=True).tail(10)
             yearly_div.columns = ["年份", "現金股利"]
             yearly_div["現金股利"] = yearly_div["現金股利"].round(2)
@@ -154,6 +158,8 @@ def run_strategy(ticker, name, group, params):
             "df_day": df_day,
             "close": round(float(latest_close), 2),
             "volume": int(latest_vol_lots),
+            "ma_week_val": round(float(ma_week_val), 2),
+            "risk_pct": round(float(risk_pct), 2),
             "div_history": div_history_df
         }
     except Exception:
@@ -232,14 +238,19 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
-            # 呈現近十年現金股利靜態長條圖（附帶長條上方數值，絕對不會彈出黑框）
+            # 呈現停損風險評估資訊
+            risk_color = "red" if m['risk_pct'] < 3 else "green"
+            st.markdown(f"🛡️ **停損紅線 (週20MA)：{m['ma_week_val']} 元** ｜ ⚠️ **進場風險空間：<span style='color:{risk_color}'>{m['risk_pct']}%</span>** (跌破即觸發退場)", unsafe_allow_html=True)
+            
+            # 呈現近十年現金股利靜態長條圖
             if not m['div_history'].empty:
                 st.markdown("**📊 近十年現金股利發放長條圖：**")
                 plot_dividend_bar_chart(m['div_history'])
             else:
                 st.info("該標的無近期股利發放紀錄")
                 
-            plot_stock_chart(m['ticker'], m['df_day'])
+            # 繪製 K 線圖並帶入週 20MA 停損紅線
+            plot_stock_chart(m['ticker'], m['df_day'], m['ma_week_val'])
             st.divider()
     else:
         st.warning("ℹ️ 在目前的參數設定下，暫無符合條件的股票。")

@@ -1,42 +1,36 @@
 import streamlit as st
-import pandas as pd
 import requests
 
 st.set_page_config(page_title="台股成交量篩選器", layout="wide")
-st.title("📈 台股成交量篩選器 (純文字極速版)")
+st.title("📈 台股成交量篩選器 (極速輕量版)")
 
-if st.button("🚀 開始透過官方通道取得行情"):
-    results = []
-    try:
-        url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=5)
-        
-        if res.status_code == 200:
-            raw_data = res.json()
-            for item in raw_data:
-                try:
-                    vol_shares = float(item.get('TradeVolume', 0))
-                    vol_lots = vol_shares / 1000 
-                    close_price = float(item.get('ClosingPrice', 0))
-                    
-                    if vol_lots >= 1000: 
-                        results.append({
-                            "code": item.get('Code'),
-                            "name": item.get('Name'),
-                            "volume": int(vol_lots),
-                            "price": close_price
-                        })
-                except:
-                    continue
-    except Exception as e:
-        st.error(f"發生錯誤: {e}")
-        
-    if results:
-        st.success(f"🎉 成功篩選出 {len(results)} 支成交量超過 1,000 張的標的！")
-        st.markdown("---")
-        # 改用迴圈直接印出文字，不使用 st.dataframe 避開執行緒崩潰
-        for r in results:
-            st.markdown(f"📌 **{r['name']} ({r['code']})** ｜ 收盤價：**{r['price']}** 元 ｜ 成交量：**{r['volume']}** 張")
-    else:
-        st.warning("目前沒有抓到符合的標的或連線受阻。")
+if st.button("🚀 立即開始篩選", type="primary"):
+    with st.spinner("正在連線至證交所讀取行情..."):
+        try:
+            url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+            res = requests.get(url, timeout=3)
+            
+            if res.status_code == 200:
+                data = res.json()
+                count = 0
+                st.success("🎉 資料讀取成功！成交量大於 1,000 張的標的：")
+                st.markdown("---")
+                
+                for item in data:
+                    try:
+                        vol = float(item.get('TradeVolume', 0)) / 1000
+                        if vol >= 1000:
+                            count += 1
+                            name = item.get('Name', '')
+                            code = item.get('Code', '')
+                            price = item.get('ClosingPrice', 0)
+                            st.markdown(f"📌 **{name} ({code})** ｜ 收盤：**{price}** ｜ 量：**{int(vol)}** 張")
+                    except:
+                        continue
+                
+                if count == 0:
+                    st.warning("目前沒有符合條件的標的。")
+            else:
+                st.error(f"伺服器回應代碼：{res.status_code}")
+        except Exception as e:
+            st.error(f"連線逾時或發生錯誤，請稍後再試。")

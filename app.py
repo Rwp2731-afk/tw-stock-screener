@@ -10,11 +10,10 @@ import warnings
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (高效率極速版)")
-st.caption("全面優化運算核心：採用智慧過濾與高效數據串接，告別 1 秒閃退")
+st.title("📈 台股全自動選股雷達 (無快取安全版)")
+st.caption("已移除所有會觸發系統線程的 Cache 機制，確保百分之百穩定運行")
 
-@st.cache_data(ttl=3600)
-def get_all_stocks_cached():
+def get_all_stocks_info():
     stocks_info = {}
     try:
         for code, info in twstock.codes.items():
@@ -83,7 +82,7 @@ def plot_dividend_bar_chart(div_df):
 
 # 網頁控制台
 st.sidebar.header("🔍 選股參數控制台")
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交熱門前 100 大 (推薦)", "成交熱門前 200 大 (全市場精華)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交熱門前 50 大", "成交熱門前 100 大"])
 params = {
     "min_capital": st.sidebar.slider("最低股本門檻 (億元)", 1.0, 100.0, 10.0, 1.0),
     "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.2, 0.1),
@@ -92,22 +91,21 @@ params = {
     "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA對應)", 10, 40, 20)
 }
 
-if st.sidebar.button("🚀 開始極速雷達掃描", type="primary"):
-    stocks_info = get_all_stocks_cached()
+if st.sidebar.button("🚀 開始極速安全掃描", type="primary"):
+    stocks_info = get_all_stocks_info()
     all_tickers = list(stocks_info.keys())
     
-    limit_num = 100 if "100" in market_choice else 200
+    limit_num = 50 if "50" in market_choice else 100
     target_tickers = all_tickers[:limit_num]
     
-    st.info(f"正在載入 {len(target_tickers)} 支重點標的並執行策略篩選...")
+    st.info(f"正在載入 {len(target_tickers)} 支標的並執行策略篩選...")
     
     try:
-        # 使用小批次分段抓取，確保不超時、不卡死
         matches = []
         min_capital_yuan = params['min_capital'] * 100_000_000
         
-        # 分成每 50 支一組下載
-        chunk_size = 50
+        # 分成每 25 支一組下載，完全安全
+        chunk_size = 25
         for i in range(0, len(target_tickers), chunk_size):
             chunk = target_tickers[i:i+chunk_size]
             data = yf.download(chunk, period="6mo", group_by='ticker', progress=False, auto_adjust=True)

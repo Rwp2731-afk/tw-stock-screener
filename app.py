@@ -10,8 +10,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (結合歷年股利分析)")
-st.caption("自動獲取全台上市上櫃股票清單，依據側邊欄動態參數與股利條件掃描強勢標的")
+st.title("📈 台股全自動選股雷達 (結合近十年股利歷史)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與近十年完整配息紀錄掃描強勢標的")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -57,7 +57,7 @@ def plot_stock_chart(ticker, df_day):
     )
     st.pyplot(fig)
 
-# 單一股票策略運算邏輯 (加入歷年股利分析)
+# 單一股票策略運算邏輯 (固定成交量 >= 1000張，抓取近10年股利)
 def run_strategy(ticker, name, group, params):
     try:
         stock_obj = yf.Ticker(ticker)
@@ -71,28 +71,28 @@ def run_strategy(ticker, name, group, params):
         vol_day = df_day['Volume'].values.flatten()
         close_week = df_week['Close'].values.flatten()
         
-        # 條件 1: 長期均線之上 (預設 20週 MA)
+        # 條件 1: 長期均線之上
         ma_week_val = pd.Series(close_week).rolling(params['ma_week']).mean().iloc[-1]
         if not (close_week[-1] > ma_week_val):
             return None
         
-        # 條件 2: 成交量門檻 (張數)
+        # 條件 2: 成交量固定門檻 >= 1000張 (不設參數微調)
         latest_vol_lots = vol_day[-1] / 1000
-        if latest_vol_lots < params['min_vol_lots']:
+        if latest_vol_lots < 1000:
             return None
         
-        # 條件 3: 放大量對比 (預設 20日均量 X 倍)
+        # 條件 3: 放大量對比 (對比20日均量 X 倍)
         ma_vol_val = pd.Series(vol_day).rolling(20).mean().iloc[-1]
         if not (vol_day[-1] >= (ma_vol_val * params['vol_multiplier'])):
             return None
         
-        # 條件 4: 突破 N 日新高 (預設 40日)
+        # 條件 4: 突破 N 日新高
         breakout_days = params['breakout_days']
         latest_close = close_day[-1]
         if not (latest_close >= np.max(df_day['High'].values.flatten()[-breakout_days:-1])):
             return None
         
-        # 條件 5: W 底型態數學邏輯 (可調容錯率)
+        # 條件 5: W 底型態數學邏輯
         tolerance = params['w_tolerance']
         lows = df_day['Low'].values.flatten()[-60:]
         min1_idx = np.argmin(lows[:30])
@@ -104,24 +104,22 @@ def run_strategy(ticker, name, group, params):
         if not cond_w:
             return None
 
-        # ── 附加功能：取得歷年股利與計算平均殖利率 ──
+        # ── 取得近十年完整股利發放數據 ──
         dividends = stock_obj.dividends
-        total_div_3y = 0.0
-        avg_div = 0.0
-        div_yield = 0.0
+        div_history_df = pd.DataFrame(columns=["年份", "現金股利(元)"])
         
         if not dividends.empty:
-            # 取最近三年的股利總和
-            recent_divs = dividends.last('3Y')
-            if not recent_divs.empty:
-                total_div_3y = float(recent_divs.sum())
-                avg_div = round(total_div_3y / 3.0, 2)
-                if latest_close > 0:
-                    div_yield = round((avg_div / latest_close) * 100, 2)
-        
-        # 如果勾選了「必須有近三年發放股利」，在此過濾
-        if params['require_dividend'] and avg_div <= 0:
-            return None
+            # 轉換索引為時間格式並提取年份
+            dividends.index = pd.to_datetime(dividends.index)
+            div_df = pd.DataFrame({'Dividend': dividends})
+            div_df['Year'] = div_df.index.year
+            # 按年份加總該年發放的現金股利
+            yearly_div = div_df.groupby('Year')['Dividend'].sum().reset_index()
+            # 取最近 10 年
+            yearly_div = yearly_div.sort_values(by='Year', ascending=False).head(10)
+            yearly_div.columns = ["年份", "現金股利(元)"]
+            yearly_div["現金股利(元)"] = yearly_div["現金股利(元)"].round(2)
+            div_history_df = yearly_div
 
         return {
             "ticker": ticker,
@@ -130,8 +128,7 @@ def run_strategy(ticker, name, group, params):
             "df_day": df_day,
             "close": round(float(latest_close), 2),
             "volume": int(latest_vol_lots),
-            "avg_div": avg_div,
-            "div_yield": div_yield
+            "div_history": div_history_df
         }
     except Exception:
         return None
@@ -145,12 +142,10 @@ st.sidebar.divider()
 st.sidebar.subheader("⚙️ 策略參數動態微調")
 
 params = {
-    "min_vol_lots": st.sidebar.slider("最低成交量門檻 (張)", 500, 5000, 1000, 100),
     "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.1, 0.1),
     "w_tolerance": st.sidebar.slider("W底左右腳容錯率 (%)", 1.0, 15.0, 6.0, 0.5) / 100.0,
     "breakout_days": st.sidebar.number_input("突破幾日內創高", 10, 60, 40),
-    "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA)", 10, 40, 20),
-    "require_dividend": st.sidebar.checkbox("僅顯示近年有發放股利的標的", value=False)
+    "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA)", 10, 40, 20)
 }
 
 st.sidebar.divider()
@@ -176,7 +171,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票，同步帶入股利數據中...")
+    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票 (成交量門檻固定 >= 1000張)...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -209,8 +204,16 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
         for m in matches:
             st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
-            st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 ｜ 💵 近年平均年配息：**{m['avg_div']}** 元 (約當殖利率：**{m['div_yield']}%**)")
+            st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
+            
+            # 呈現近十年股利發放表格
+            if not m['div_history'].empty:
+                st.markdown("**📊 近年現金股利發放紀錄：**")
+                st.dataframe(m['div_history'].set_index("年份").T, use_container_width=True)
+            else:
+                st.info("該標的無近期股利發放紀錄")
+                
             plot_stock_chart(m['ticker'], m['df_day'])
             st.divider()
     else:
-        st.warning("ℹ️ 在目前的參數與股利設定下，暫無符合條件的股票。")
+        st.warning("ℹ️ 在目前的參數設定下，暫無符合條件的股票。")

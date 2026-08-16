@@ -1,53 +1,53 @@
 import streamlit as st
 import pandas as pd
 import requests
-import io
 
 st.set_page_config(page_title="台股成交量篩選器", layout="wide")
-st.title("📈 台股成交量篩選器 (純HTTP防崩潰版)")
+st.title("📈 台股成交量篩選器 (證交所官方通道)")
 
-stock_list = ["2330.TW", "2317.TW", "2454.TW", "2308.TW", "2382.TW", "2881.TW", "2882.TW", "1301.TW", "2603.TW", "2412.TW"]
-
-if st.button("🚀 開始執行純HTTP篩選"):
+if st.button("🚀 開始透過官方通道取得行情"):
     results = []
-    debug_logs = []
-    progress = st.progress(0)
-    
-    for i, ticker in enumerate(stock_list):
-        try:
-            url = f"https://query1.finance.yahoo.com/v7/finance/download/{ticker}?period1=1700000000&period2=2000000000&interval=1d&events=history"
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            res = requests.get(url, headers=headers, timeout=3)
-            
-            if res.status_code == 200:
-                df = pd.read_csv(io.StringIO(res.text))
-                if not df.empty and 'Close' in df.columns:
-                    close_val = df['Close'].iloc[-1]
-                    vol_val = df['Volume'].iloc[-1]
-                    vol_lots = vol_val / 1000
-                    
-                    debug_logs.append(f"{ticker} 成功：收盤={close_val}, 量={vol_lots:.0f}張")
-                    if vol_lots >= 100:
-                        results.append({
-                            "代號": ticker, 
-                            "成交量(張)": int(vol_lots), 
-                            "收盤價": round(float(close_val), 2)
-                        })
-                else:
-                    debug_logs.append(f"{ticker}：回傳格式不符")
-            else:
-                debug_logs.append(f"{ticker}：HTTP狀態碼 {res.status_code}")
-        except Exception as e:
-            debug_logs.append(f"{ticker} 錯誤: {str(e)}")
-            
-        progress.progress((i + 1) / len(stock_list))
+    try:
+        # 證交所每日收盤行情 JSON 接口
+        url = "https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&type=ALL"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=5)
         
-    st.subheader("🔍 執行日誌")
-    for log in debug_logs:
-        st.text(log)
+        if res.status_code == 200:
+            data = res.json()
+            # 尋找包含個股收盤行情的表格 (通常在 tables 的某個索引中，或欄位符合)
+            # 這裡我們使用更穩定的備用證交所三大法人或當日收盤彙整
+            st.success("成功連線至證交所伺服器！正在解析資料...")
+            
+            # 為了確保穩定，我們直接串接另一組公開的台股即時/收盤彙整源
+            fallback_url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+            res2 = requests.get(fallback_url, headers=headers, timeout=5)
+            if res2.status_code == 200:
+                raw_data = res2.json()
+                for item in raw_data:
+                    # 欄位包含：Code, Name, TradeVolume (成交股數), Close (收盤價) etc.
+                    try:
+                        vol_shares = float(item.get('TradeVolume', 0))
+                        vol_lots = vol_shares / 1000 # 換算成張
+                        close_price = float(item.get('ClosingPrice', 0))
+                        
+                        if vol_lots >= 1000: # 成交量 1000 張以上
+                            results.append({
+                                "代號": item.get('Code'),
+                                "名稱": item.get('Name'),
+                                "成交量(張)": int(vol_lots),
+                                "收盤價": close_price
+                            })
+                    except:
+                        continue
+        else:
+            st.error(f"連線失敗，狀態碼：{res.status_code}")
+    except Exception as e:
+        st.error(f"發生錯誤: {e}")
         
-    st.subheader("📊 篩選結果")
     if results:
-        st.table(pd.DataFrame(results))
+        df = pd.DataFrame(results)
+        st.success(f"🎉 成功篩選出 {len(df)} 支成交量超過 1,000 張的標的！")
+        st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.warning("沒有符合條件的標的")
+        st.warning("目前沒有抓到符合的標的或連線受阻。")

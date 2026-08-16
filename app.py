@@ -11,8 +11,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (純HTTP極速版)")
-st.caption("完全捨棄 yfinance 內部線程，改用純 HTTP 序列通道，保證不再報錯")
+st.title("📈 台股全自動選股雷達 (全台總掃描版)")
+st.caption("成交量門檻 1,000 張以上 ｜ 完整掃描全台上市櫃股票，採用絕對安全序列通道")
 
 def get_all_stocks_info():
     stocks_info = {}
@@ -36,7 +36,7 @@ def get_stock_data_http(ticker):
     try:
         url = f"https://query1.finance.yahoo.com/v7/finance/download/{ticker}?period1=1700000000&period2=2000000000&interval=1d&events=history&includeAdjustedClose=true"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        response = requests.get(url, headers=headers, timeout=3)
+        response = requests.get(url, headers=headers, timeout=2.5)
         if response.status_code == 200:
             df = pd.read_csv(io.StringIO(response.text))
             if 'Date' in df and 'Close' in df:
@@ -96,8 +96,7 @@ def plot_dividend_bar_chart(div_df):
     plt.close(fig)
 
 # 網頁控制台
-st.sidebar.header("🔍 選股參數控制台")
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交熱門前 30 大", "成交熱門前 50 大"])
+st.sidebar.header("🔍 全台選股參數控制台")
 params = {
     "min_capital": st.sidebar.slider("最低股本門檻 (億元)", 1.0, 100.0, 10.0, 1.0),
     "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.2, 0.1),
@@ -106,29 +105,31 @@ params = {
     "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA對應)", 10, 40, 20)
 }
 
-if st.sidebar.button("🚀 開始純 HTTP 安全掃描", type="primary"):
+if st.sidebar.button("🚀 開始執行全台總掃描", type="primary"):
     stocks_info = get_all_stocks_info()
     all_tickers = list(stocks_info.keys())
     
-    limit_num = 30 if "30" in market_choice else 50
-    target_tickers = all_tickers[:limit_num]
-    
-    st.info(f"正在透過純 HTTP 通道掃描 {len(target_tickers)} 支股票...")
+    st.info(f"正在啟動全台上市櫃股票掃描（總計約 {len(all_tickers)} 支），請稍候...")
     progress_bar = st.progress(0)
     status_text = st.empty()
     matches = []
     
     min_capital_yuan = params['min_capital'] * 100_000_000
-    total_count = len(target_tickers)
+    total_count = len(all_tickers)
     
-    for idx, ticker in enumerate(target_tickers):
+    for idx, ticker in enumerate(all_tickers):
         info = stocks_info[ticker]
-        status_text.text(f"掃描進度 [{idx + 1}/{total_count}]：{info['name']} ({ticker})")
-        progress_bar.progress((idx + 1) / total_count)
         
+        # 每隔幾支更新一次畫面進度條，避免卡頓
+        if idx % 15 == 0 or idx == total_count - 1:
+            status_text.text(f"掃描進度 [{idx + 1}/{total_count}]：{info['name']} ({ticker})")
+            progress_bar.progress(min((idx + 1) / total_count, 1.0))
+        
+        # 1. 股本過濾（先過濾掉不符合的，節省下載時間）
         if info['capital'] < min_capital_yuan:
             continue
             
+        # 2. 下載歷史數據
         df_day = get_stock_data_http(ticker)
         if df_day is None or len(df_day) < 80:
             continue
@@ -142,21 +143,26 @@ if st.sidebar.button("🚀 開始純 HTTP 安全掃描", type="primary"):
             latest_close = close_day[-1]
             latest_vol_lots = vol_day[-1] / 1000
             
-            if latest_vol_lots < 800:
+            # 3. 成交量條件：嚴格要求至少 1,000 張以上
+            if latest_vol_lots < 1000:
                 continue
                 
+            # 4. 長期均線條件
             ma_week_val = pd.Series(close_day).rolling(params['ma_week'] * 5).mean().iloc[-1]
             if not (latest_close > ma_week_val):
                 continue
                 
+            # 5. 放量條件
             ma_vol_val = pd.Series(vol_day).rolling(20).mean().iloc[-1]
             if not (vol_day[-1] >= (ma_vol_val * params['vol_multiplier'])):
                 continue
                 
+            # 6. 突破創高條件
             breakout_days = params['breakout_days']
             if not (latest_close >= np.max(high_day[-breakout_days:-1])):
                 continue
                 
+            # 7. W底型態判定
             tolerance = params['w_tolerance']
             lows = low_day[-60:]
             if len(lows) >= 40:
@@ -184,8 +190,8 @@ if st.sidebar.button("🚀 開始純 HTTP 安全掃描", type="primary"):
         except Exception:
             continue
             
-    status_text.text("掃描完畢！")
-    st.success(f"🎉 篩選完畢！總共挑選出 {len(matches)} 支符合條件的強勢標的。")
+    status_text.text("全台市場掃描完畢！")
+    st.success(f"🎉 篩選完畢！總共從全台上市櫃股票中挑選出 {len(matches)} 支符合「成交量大於 1,000 張」與完整技術指標的強勢標的。")
     
     if matches:
         for m in matches:
@@ -202,4 +208,4 @@ if st.sidebar.button("🚀 開始純 HTTP 安全掃描", type="primary"):
             plot_stock_chart(m['ticker'], m['df_day'], m['ma_week_val'])
             st.divider()
     else:
-        st.warning("ℹ️ 在目前的條件下暫無標的。可試著在側邊欄微調參數！")
+        st.warning("ℹ️ 在目前的嚴格條件下暫無標的。可試著在側邊欄微調「放量倍數」或「容錯率」！")

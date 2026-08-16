@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import mplfinance as mpf
 import twstock
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 warnings.filterwarnings('ignore')
 
@@ -42,7 +42,6 @@ def plot_stock_chart(ticker, df_day, ma20_val):
     addplots = [
         mpf.make_addplot(ma20, color='dodgerblue', width=1.5),
         mpf.make_addplot(ma100, color='purple', width=1.8),
-        # 加入一條水平紅虛線作為停損警戒 (週 20MA)
         mpf.make_addplot([ma20_val]*len(plot_df), color='red', linestyle='dashed', width=1.2)
     ]
     
@@ -91,7 +90,6 @@ def plot_dividend_bar_chart(div_df):
 # 單一股票策略運算邏輯
 def run_strategy(ticker, name, group, capital, params):
     try:
-        # 條件 0: 股本過濾 (twstock 的 capital 單位為「元」，所以 20 億 = 2,000,000,000)
         min_capital_yuan = params['min_capital'] * 100_000_000
         if capital < min_capital_yuan:
             return None
@@ -107,28 +105,23 @@ def run_strategy(ticker, name, group, capital, params):
         vol_day = df_day['Volume'].values.flatten()
         close_week = df_week['Close'].values.flatten()
         
-        # 條件 1: 長期週均線之上（同時作為停損基準）
         ma_week_val = pd.Series(close_week).rolling(params['ma_week']).mean().iloc[-1]
         if not (close_week[-1] > ma_week_val):
             return None
         
-        # 條件 2: 成交量固定門檻 >= 1000張
         latest_vol_lots = vol_day[-1] / 1000
         if latest_vol_lots < 1000:
             return None
         
-        # 條件 3: 放大量對比
         ma_vol_val = pd.Series(vol_day).rolling(20).mean().iloc[-1]
         if not (vol_day[-1] >= (ma_vol_val * params['vol_multiplier'])):
             return None
         
-        # 條件 4: 突破 N 日新高
         breakout_days = params['breakout_days']
         latest_close = close_day[-1]
         if not (latest_close >= np.max(df_day['High'].values.flatten()[-breakout_days:-1])):
             return None
         
-        # 條件 5: W 底型態數學邏輯
         tolerance = params['w_tolerance']
         lows = df_day['Low'].values.flatten()[-60:]
         min1_idx = np.argmin(lows[:30])
@@ -140,11 +133,9 @@ def run_strategy(ticker, name, group, capital, params):
         if not cond_w:
             return None
 
-        # 計算目前現價距離週 20MA 停損線的風險空間 (%)
         risk_pct = ((latest_close - ma_week_val) / latest_close) * 100
         capital_yi = round(capital / 100_000_000, 2)
 
-        # 取得近十年完整股利發放數據
         dividends = stock_obj.dividends
         div_history_df = pd.DataFrame(columns=["年份", "現金股利"])
         
@@ -176,7 +167,7 @@ def run_strategy(ticker, name, group, capital, params):
 # ================= 網頁控制台 (Sidebar) =================
 st.sidebar.header("🔍 全自動選股控制台")
 
-market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，約 1800+ 支極速掃描)"])
+market_choice = st.sidebar.radio("選擇掃描範圍", ["成交金額熱門前 150 大", "全台股 (上市+上櫃，序列化穩定掃描)"])
 
 st.sidebar.divider()
 st.sidebar.subheader("⚙️ 策略參數動態微調")
@@ -212,7 +203,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     else:
         target_tickers = all_tickers
         
-    st.info(f"正在以多線程極速引擎掃描 {len(target_tickers)} 支股票...")
+    st.info(f"正在以序列化穩定引擎掃描 {len(target_tickers)} 支股票...")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -221,32 +212,27 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     completed_count = 0
     total_count = len(target_tickers)
     
-    with ThreadPoolExecutor(max_workers=16) as executor:
-        future_to_ticker = {
-            executor.submit(
-                run_strategy, 
-                ticker, 
-                stocks_info[ticker]['name'], 
-                stocks_info[ticker]['group'], 
-                stocks_info[ticker]['capital'], 
-                params
-            ): ticker 
-            for ticker in target_tickers
-        }
+    # 改用安全的序列化迴圈並加上緩衝時間，徹底消除執行緒崩潰與 IP 封鎖問題
+    for ticker in target_tickers:
+        res = run_strategy(
+            ticker, 
+            stocks_info[ticker]['name'], 
+            stocks_info[ticker]['group'], 
+            stocks_info[ticker]['capital'], 
+            params
+        )
+        if res:
+            matches.append(res)
         
-        for future in as_completed(future_to_ticker):
-            ticker = future_to_ticker[future]
-            res = future.result()
-            if res:
-                matches.append(res)
+        completed_count += 1
+        if completed_count % 5 == 0 or completed_count == total_count:
+            progress_bar.progress(completed_count / total_count)
+            status_text.text(f"已掃描: {completed_count}/{total_count} 支標的...")
             
-            completed_count += 1
-            if completed_count % 10 == 0 or completed_count == total_count:
-                progress_bar.progress(completed_count / total_count)
-                status_text.text(f"已極速掃描: {completed_count}/{total_count} 支標的...")
+        time.sleep(0.15) # 加入微小緩衝，保護連線通道穩定
                 
     status_text.text("掃描完畢！")
-    st.success("🎉 全自動極速掃描完成！")
+    st.success("🎉 全自動掃描完成！")
     
     if matches:
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
@@ -254,18 +240,15 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 股本：**{m['capital_yi']} 億**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
-            # 呈現停損風險評估資訊
             risk_color = "red" if m['risk_pct'] < 3 else "green"
             st.markdown(f"🛡️ **停損紅線 (週20MA)：{m['ma_week_val']} 元** ｜ ⚠️ **進場風險空間：<span style='color:{risk_color}'>{m['risk_pct']}%</span>** (跌破即觸發退場)", unsafe_allow_html=True)
             
-            # 呈現近十年現金股利靜態長條圖
             if not m['div_history'].empty:
                 st.markdown("**📊 近十年現金股利發放長條圖：**")
                 plot_dividend_bar_chart(m['div_history'])
             else:
                 st.info("該標的無近期股利發放紀錄")
                 
-            # 繪製 K 線圖並帶入週 20MA 停損紅線
             plot_stock_chart(m['ticker'], m['df_day'], m['ma_week_val'])
             st.divider()
     else:

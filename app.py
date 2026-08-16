@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import mplfinance as mpf
 import twstock
 import warnings
+import time
 
 warnings.filterwarnings('ignore')
 
@@ -13,7 +14,7 @@ st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="
 st.title("📈 台股全自動選股雷達 (穩定版)")
 st.caption("自動獲取全台上市上櫃股票清單，依據 20 日均量比對、股本過濾與週 20MA 停損紅線進行掃描")
 
-# 安全取得台股清單（完全避開快取與內部線程衝突）
+# 安全取得台股清單
 def get_safe_stocks_info():
     stocks_info = {}
     try:
@@ -161,7 +162,13 @@ params = {
     "ma_week": st.sidebar.number_input("長期趨勢均線 (週MA)", 10, 40, 20)
 }
 
-if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
+# 建立一個強制觸發執行的按鈕，並用 time 確保狀態不被快取攔截
+run_button = st.sidebar.button("🚀 開始全自動雷達掃描", type="primary")
+
+if run_button:
+    st.session_state['run_scan'] = time.time()
+
+if 'run_scan' in st.session_state:
     stocks_info = get_safe_stocks_info()
     all_tickers = list(stocks_info.keys())
     

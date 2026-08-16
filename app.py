@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import mplfinance as mpf
 import twstock
 import warnings
@@ -10,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (近十年股利波動折線圖)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與近十年純淨態配息折線圖掃描強勢標的")
+st.title("📈 台股全自動選股雷達 (結合近十年靜態股利長條圖)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與近十年絕對固定之配息長條圖掃描強勢標的")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -56,6 +57,33 @@ def plot_stock_chart(ticker, df_day):
         returnfig=True
     )
     st.pyplot(fig)
+
+# 繪製完全靜態的股利長條圖 (Matplotlib 產出，絕不彈出互動框)
+def plot_dividend_bar_chart(div_df):
+    fig, ax = plt.subplots(figsize=(10, 3.5))
+    years = div_df['年份'].astype(str).tolist()
+    dividends = div_df['現金股利'].tolist()
+    
+    bars = ax.bar(years, dividends, color='teal', alpha=0.85, width=0.6)
+    
+    # 在長條上方直接標註數字，不用游標指也能看清
+    for bar in bars:
+        height = bar.get_height()
+        ax.annotate(f'{height}',
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', va='bottom', fontsize=9)
+                    
+    ax.set_title("Recent 10-Year Cash Dividend (TWD)", fontsize=11, fontweight='bold')
+    ax.set_ylabel("Dividend (TWD)")
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    
+    st.pyplot(fig)
+    plt.close(fig)
 
 # 單一股票策略運算邏輯
 def run_strategy(ticker, name, group, params):
@@ -204,12 +232,10 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
-            # 呈現近十年現金股利折線圖與明細表 (使用 use_container_width 並帶入參數隱藏互動提示)
+            # 呈現近十年現金股利靜態長條圖（附帶長條上方數值，絕對不會彈出黑框）
             if not m['div_history'].empty:
-                st.markdown("**📊 近十年現金股利波動趨勢與明細：**")
-                chart_data = m['div_history'].set_index("年份")
-                st.line_chart(chart_data, use_container_width=True)
-                st.dataframe(chart_data.T, use_container_width=True)
+                st.markdown("**📊 近十年現金股利發放長條圖：**")
+                plot_dividend_bar_chart(m['div_history'])
             else:
                 st.info("該標的無近期股利發放紀錄")
                 

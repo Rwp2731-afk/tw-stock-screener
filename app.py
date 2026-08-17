@@ -11,8 +11,8 @@ import time
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (直觀帶出股本與週20MA停損紀律)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描，並直觀顯示股本資訊")
+st.title("📈 台股全自動選股雷達 (週20MA停損紀律與完整均線版)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -25,14 +25,13 @@ def get_all_tw_stocks_info():
             stocks_info[ticker] = {
                 "code": code,
                 "name": info.name,
-                "group": info.group if info.group else "其他",
-                "capital": info.capital if hasattr(info, 'capital') and info.capital else 0  # 股本 (元)
+                "group": info.group if info.group else "其他"
             }
     return stocks_info
 
-# 標準 K 線圖（已加入週 20MA 紅色停損虛線）
+# 標準 K 線圖（已將顯示天數拉長至 250 天，讓 100 日均線完整呈現）
 def plot_stock_chart(ticker, df_day, ma20_val):
-    plot_df = df_day.iloc[-120:].copy()
+    plot_df = df_day.iloc[-250:].copy()
     if isinstance(plot_df.columns, pd.MultiIndex):
         plot_df.columns = plot_df.columns.get_level_values(0)
         
@@ -87,8 +86,8 @@ def plot_dividend_bar_chart(div_df):
     st.pyplot(fig)
     plt.close(fig)
 
-# 單一股票策略運算邏輯（已移除股本大小過濾限制）
-def run_strategy(ticker, name, group, capital, params):
+# 單一股票策略運算邏輯（已完美對應參數，移除資本額）
+def run_strategy(ticker, name, group, params):
     try:
         stock_obj = yf.Ticker(ticker)
         df_day = stock_obj.history(period="1y", auto_adjust=True)
@@ -130,7 +129,6 @@ def run_strategy(ticker, name, group, capital, params):
             return None
 
         risk_pct = ((latest_close - ma_week_val) / latest_close) * 100
-        capital_yi = round(capital / 100_000_000, 2)
 
         dividends = stock_obj.dividends
         div_history_df = pd.DataFrame(columns=["年份", "現金股利"])
@@ -149,7 +147,6 @@ def run_strategy(ticker, name, group, capital, params):
             "ticker": ticker,
             "name": name,
             "group": group,
-            "capital_yi": capital_yi,
             "df_day": df_day,
             "close": round(float(latest_close), 2),
             "volume": int(latest_vol_lots),
@@ -212,7 +209,6 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             ticker, 
             stocks_info[ticker]['name'], 
             stocks_info[ticker]['group'], 
-            stocks_info[ticker]['capital'], 
             params
         )
         if res:
@@ -231,8 +227,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     if matches:
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
         for m in matches:
-            # 直觀帶出股本資訊在標題區塊中
-            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 資本額(股本)：**{m['capital_yi']} 億**")
+            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
             risk_color = "red" if m['risk_pct'] < 3 else "green"

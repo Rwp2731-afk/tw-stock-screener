@@ -5,68 +5,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 import twstock
-import requests
 import warnings
 import time
 
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (穩定清單與真實資本額版)")
-st.caption("結合穩定股票清單、真實資本額對應、完整長均線呈現，以及週 20MA 停損紅線的強勢標的掃描系統")
+st.title("📈 台股全自動選股雷達 (週20MA停損紀律與完整均線版)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描")
 
-# 透過官方 API 建立完整真實資本額對照表
-@st.cache_data(ttl=86400)
-def get_official_capitals():
-    capital_dict = {}
-    
-    # 抓取上市資本額
-    try:
-        res = requests.get("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", timeout=10)
-        if res.status_code == 200:
-            for item in res.json():
-                code = item.get('公司代號', '').strip()
-                cap_str = item.get('實收資本額', '0').replace(',', '').strip()
-                if code and cap_str.replace('.', '', 1).isdigit():
-                    capital_dict[code] = float(cap_str)
-    except Exception:
-        pass
-
-    # 抓取上櫃資本額
-    try:
-        res = requests.get("https://www.tpex.org.tw/openapi/v1/t187ap03_O", timeout=10)
-        if res.status_code == 200:
-            for item in res.json():
-                code = item.get('公司代號', '').strip()
-                cap_str = item.get('實收資本額', '0').replace(',', '').strip()
-                if code and cap_str.replace('.', '', 1).isdigit():
-                    capital_dict[code] = float(cap_str)
-    except Exception:
-        pass
-        
-    return capital_dict
-
-# 建立 100% 穩定的台股清單（確保原本能抓到的股票完全不會遺漏）
+# 自動獲取全台股清單與基本資訊（已移除資本額抓取）
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_info():
-    official_caps = get_official_capitals()
     stocks_info = {}
-    
     for code, info in twstock.codes.items():
         if info.type == '股票' and info.market in ['上市', '上櫃']:
             suffix = '.TW' if info.market == '上市' else '.TWO'
             ticker = f"{code}{suffix}"
-            
-            # 優先從官方 API 抓取真實資本額，若無則用 twstock 備用屬性
-            capital = official_caps.get(code, 0.0)
-            if capital == 0.0 and hasattr(info, 'capital') and info.capital:
-                capital = float(info.capital)
-                
             stocks_info[ticker] = {
                 "code": code,
                 "name": info.name,
-                "group": info.group if info.group else "其他",
-                "capital": capital
+                "group": info.group if info.group else "其他"
             }
     return stocks_info
 
@@ -127,8 +86,8 @@ def plot_dividend_bar_chart(div_df):
     st.pyplot(fig)
     plt.close(fig)
 
-# 單一股票策略運算邏輯
-def run_strategy(ticker, name, group, capital, params):
+# 單一股票策略運算邏輯（已移除資本額相關運算）
+def run_strategy(ticker, name, group, params):
     try:
         stock_obj = yf.Ticker(ticker)
         df_day = stock_obj.history(period="1y", auto_adjust=True)
@@ -170,7 +129,6 @@ def run_strategy(ticker, name, group, capital, params):
             return None
 
         risk_pct = ((latest_close - ma_week_val) / latest_close) * 100
-        capital_yi = round(capital / 100_000_000, 2)
 
         dividends = stock_obj.dividends
         div_history_df = pd.DataFrame(columns=["年份", "現金股利"])
@@ -189,7 +147,6 @@ def run_strategy(ticker, name, group, capital, params):
             "ticker": ticker,
             "name": name,
             "group": group,
-            "capital_yi": capital_yi,
             "df_day": df_day,
             "close": round(float(latest_close), 2),
             "volume": int(latest_vol_lots),
@@ -252,7 +209,6 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             ticker, 
             stocks_info[ticker]['name'], 
             stocks_info[ticker]['group'], 
-            stocks_info[ticker]['capital'], 
             params
         )
         if res:
@@ -271,7 +227,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     if matches:
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
         for m in matches:
-            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 資本額：**{m['capital_yi']} 億**")
+            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
             risk_color = "red" if m['risk_pct'] < 3 else "green"

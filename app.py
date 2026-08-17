@@ -4,30 +4,83 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import mplfinance as mpf
-import twstock
+import requests
 import warnings
 import time
 
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (直觀帶出股本與週20MA停損紀律)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描，並直觀顯示股本資訊")
+st.title("📈 台股全自動選股雷達 (官方資本額對應版)")
+st.caption("自動獲取全台上市上櫃股票清單與真實資本額，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描")
 
-# 自動獲取全台股清單與基本資訊
+# 從證交所/櫃買中心官方公開資料抓取真實上市櫃股票清單與資本額
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_info():
     stocks_info = {}
-    for code, info in twstock.codes.items():
-        if info.type == '股票' and info.market in ['上市', '上櫃']:
-            suffix = '.TW' if info.market == '上市' else '.TWO'
+    
+    # 抓取上市股票清單 (TWSE)
+    try:
+        url_twse = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+        res = requests.get(url_twse, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            for item in data:
+                code = item.get('公司代號', '').strip()
+                name = item.get('公司名稱', '').strip()
+                group = item.get('產業別', '').strip() or "其他"
+                # 實收資本額單位通常為元
+                capital_str = item.get('實收資本額', '0').replace(',', '').strip()
+                capital = float(capital_str) if capital_str.replace('.', '', 1).isdigit() else 0.0
+                
+                if code and len(code) == 4:
+                    ticker = f"{code}.TW"
+                    stocks_info[ticker] = {
+                        "code": code,
+                        "name": name,
+                        "group": group,
+                        "capital": capital
+                    }
+    except Exception:
+        pass
+
+    # 抓取上櫃股票清單 (TPEX)
+    try:
+        url_tpex = "https://www.tpex.org.tw/openapi/v1/t187ap03_O"
+        res = requests.get(url_tpex, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            for item in data:
+                code = item.get('公司代號', '').strip()
+                name = item.get('公司名稱', '').strip()
+                group = item.get('產業別', '').strip() or "其他"
+                capital_str = item.get('實收資本額', '0').replace(',', '').strip()
+                capital = float(capital_str) if capital_str.replace('.', '', 1).isdigit() else 0.0
+                
+                if code and len(code) == 4:
+                    ticker = f"{code}.TWO"
+                    stocks_info[ticker] = {
+                        "code": code,
+                        "name": name,
+                        "group": group,
+                        "capital": capital
+                    }
+    except Exception:
+        pass
+
+    # 若官方 API 臨時異常時的備用防呆清單 (確保系統絕對不會無股票可掃)
+    if not stocks_info:
+        # 內建幾個主要範例讓系統不中斷
+        fallback_list = [
+            ("2330", "台積電", "半導體業", 259303000000, "上市"),
+            ("2317", "鴻海", "電腦及週邊設備業", 138629900000, "上市"),
+            ("2454", "聯發科", "半導體業", 15981000000, "上市")
+        ]
+        for code, name, group, cap, market in fallback_list:
+            suffix = ".TW" if market == "上市" else ".TWO"
             ticker = f"{code}{suffix}"
-            stocks_info[ticker] = {
-                "code": code,
-                "name": info.name,
-                "group": info.group if info.group else "其他",
-                "capital": info.capital if hasattr(info, 'capital') and info.capital else 0  # 股本 (元)
-            }
+            stocks_info[ticker] = {"code": code, "name": name, "group": group, "capital": cap}
+
     return stocks_info
 
 # 標準 K 線圖（已加入週 20MA 紅色停損虛線）
@@ -87,7 +140,7 @@ def plot_dividend_bar_chart(div_df):
     st.pyplot(fig)
     plt.close(fig)
 
-# 單一股票策略運算邏輯（已移除股本大小過濾限制）
+# 單一股票策略運算邏輯
 def run_strategy(ticker, name, group, capital, params):
     try:
         stock_obj = yf.Ticker(ticker)
@@ -231,8 +284,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     if matches:
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
         for m in matches:
-            # 直觀帶出股本資訊在標題區塊中
-            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 資本額(股本)：**{m['capital_yi']} 億**")
+            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 資本額：**{m['capital_yi']} 億**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
             risk_color = "red" if m['risk_pct'] < 3 else "green"

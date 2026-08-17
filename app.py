@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import mplfinance as mpf
+import twstock
 import requests
 import warnings
 import time
@@ -11,81 +12,67 @@ import time
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (官方資本額對應版)")
-st.caption("自動獲取全台上市上櫃股票清單與真實資本額，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描")
+st.title("📈 台股全自動選股雷達 (穩定清單與真實資本額版)")
+st.caption("結合穩定股票清單、真實資本額對應、完整長均線呈現，以及週 20MA 停損紅線的強勢標的掃描系統")
 
-# 從證交所/櫃買中心官方公開資料抓取真實上市櫃股票清單與資本額
+# 透過官方 API 建立完整真實資本額對照表
+@st.cache_data(ttl=86400)
+def get_official_capitals():
+    capital_dict = {}
+    
+    # 抓取上市資本額
+    try:
+        res = requests.get("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", timeout=10)
+        if res.status_code == 200:
+            for item in res.json():
+                code = item.get('公司代號', '').strip()
+                cap_str = item.get('實收資本額', '0').replace(',', '').strip()
+                if code and cap_str.replace('.', '', 1).isdigit():
+                    capital_dict[code] = float(cap_str)
+    except Exception:
+        pass
+
+    # 抓取上櫃資本額
+    try:
+        res = requests.get("https://www.tpex.org.tw/openapi/v1/t187ap03_O", timeout=10)
+        if res.status_code == 200:
+            for item in res.json():
+                code = item.get('公司代號', '').strip()
+                cap_str = item.get('實收資本額', '0').replace(',', '').strip()
+                if code and cap_str.replace('.', '', 1).isdigit():
+                    capital_dict[code] = float(cap_str)
+    except Exception:
+        pass
+        
+    return capital_dict
+
+# 建立 100% 穩定的台股清單（確保原本能抓到的股票完全不會遺漏）
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_info():
+    official_caps = get_official_capitals()
     stocks_info = {}
     
-    # 抓取上市股票清單 (TWSE)
-    try:
-        url_twse = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
-        res = requests.get(url_twse, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            for item in data:
-                code = item.get('公司代號', '').strip()
-                name = item.get('公司名稱', '').strip()
-                group = item.get('產業別', '').strip() or "其他"
-                # 實收資本額單位通常為元
-                capital_str = item.get('實收資本額', '0').replace(',', '').strip()
-                capital = float(capital_str) if capital_str.replace('.', '', 1).isdigit() else 0.0
-                
-                if code and len(code) == 4:
-                    ticker = f"{code}.TW"
-                    stocks_info[ticker] = {
-                        "code": code,
-                        "name": name,
-                        "group": group,
-                        "capital": capital
-                    }
-    except Exception:
-        pass
-
-    # 抓取上櫃股票清單 (TPEX)
-    try:
-        url_tpex = "https://www.tpex.org.tw/openapi/v1/t187ap03_O"
-        res = requests.get(url_tpex, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            for item in data:
-                code = item.get('公司代號', '').strip()
-                name = item.get('公司名稱', '').strip()
-                group = item.get('產業別', '').strip() or "其他"
-                capital_str = item.get('實收資本額', '0').replace(',', '').strip()
-                capital = float(capital_str) if capital_str.replace('.', '', 1).isdigit() else 0.0
-                
-                if code and len(code) == 4:
-                    ticker = f"{code}.TWO"
-                    stocks_info[ticker] = {
-                        "code": code,
-                        "name": name,
-                        "group": group,
-                        "capital": capital
-                    }
-    except Exception:
-        pass
-
-    # 若官方 API 臨時異常時的備用防呆清單 (確保系統絕對不會無股票可掃)
-    if not stocks_info:
-        # 內建幾個主要範例讓系統不中斷
-        fallback_list = [
-            ("2330", "台積電", "半導體業", 259303000000, "上市"),
-            ("2317", "鴻海", "電腦及週邊設備業", 138629900000, "上市"),
-            ("2454", "聯發科", "半導體業", 15981000000, "上市")
-        ]
-        for code, name, group, cap, market in fallback_list:
-            suffix = ".TW" if market == "上市" else ".TWO"
+    for code, info in twstock.codes.items():
+        if info.type == '股票' and info.market in ['上市', '上櫃']:
+            suffix = '.TW' if info.market == '上市' else '.TWO'
             ticker = f"{code}{suffix}"
-            stocks_info[ticker] = {"code": code, "name": name, "group": group, "capital": cap}
-
+            
+            # 優先從官方 API 抓取真實資本額，若無則用 twstock 備用屬性
+            capital = official_caps.get(code, 0.0)
+            if capital == 0.0 and hasattr(info, 'capital') and info.capital:
+                capital = float(info.capital)
+                
+            stocks_info[ticker] = {
+                "code": code,
+                "name": info.name,
+                "group": info.group if info.group else "其他",
+                "capital": capital
+            }
     return stocks_info
 
-# 標準 K 線圖（已加入週 20MA 紅色停損虛線）
+# 標準 K 線圖（已將顯示天數拉長至 250 天，讓 100 日均線完整呈現）
 def plot_stock_chart(ticker, df_day, ma20_val):
-    plot_df = df_day.iloc[-120:].copy()
+    plot_df = df_day.iloc[-250:].copy()
     if isinstance(plot_df.columns, pd.MultiIndex):
         plot_df.columns = plot_df.columns.get_level_values(0)
         

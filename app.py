@@ -11,8 +11,8 @@ import time
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (結合股本過濾與週20MA停損紀律)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數、股本大小與週 20MA 停損紅線進行強勢標的掃描")
+st.title("📈 台股全自動選股雷達 (直觀帶出股本與週20MA停損紀律)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描，並直觀顯示股本資訊")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -87,13 +87,9 @@ def plot_dividend_bar_chart(div_df):
     st.pyplot(fig)
     plt.close(fig)
 
-# 單一股票策略運算邏輯
+# 單一股票策略運算邏輯（已移除股本大小過濾限制）
 def run_strategy(ticker, name, group, capital, params):
     try:
-        min_capital_yuan = params['min_capital'] * 100_000_000
-        if capital < min_capital_yuan:
-            return None
-
         stock_obj = yf.Ticker(ticker)
         df_day = stock_obj.history(period="1y", auto_adjust=True)
         df_week = stock_obj.history(period="2y", interval="1wk", auto_adjust=True)
@@ -173,7 +169,6 @@ st.sidebar.divider()
 st.sidebar.subheader("⚙️ 策略參數動態微調")
 
 params = {
-    "min_capital": st.sidebar.slider("最低股本門檻 (億元)", 5.0, 100.0, 20.0, 5.0),
     "vol_multiplier": st.sidebar.slider("放量倍數 (對比20日均量)", 1.0, 3.0, 1.1, 0.1),
     "w_tolerance": st.sidebar.slider("W底左右腳容錯率 (%)", 1.0, 15.0, 6.0, 0.5) / 100.0,
     "breakout_days": st.sidebar.number_input("突破幾日內創高", 10, 60, 40),
@@ -212,7 +207,6 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     completed_count = 0
     total_count = len(target_tickers)
     
-    # 改用安全的序列化迴圈並加上緩衝時間，徹底消除執行緒崩潰與 IP 封鎖問題
     for ticker in target_tickers:
         res = run_strategy(
             ticker, 
@@ -229,7 +223,7 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             progress_bar.progress(completed_count / total_count)
             status_text.text(f"已掃描: {completed_count}/{total_count} 支標的...")
             
-        time.sleep(0.15) # 加入微小緩衝，保護連線通道穩定
+        time.sleep(0.15)
                 
     status_text.text("掃描完畢！")
     st.success("🎉 全自動掃描完成！")
@@ -237,7 +231,8 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
     if matches:
         st.subheader(f"✅ 符合條件的強勢標的 (共 {len(matches)} 支)")
         for m in matches:
-            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 股本：**{m['capital_yi']} 億**")
+            # 直觀帶出股本資訊在標題區塊中
+            st.markdown(f"### 📌 {m['name']} ({m['ticker'].split('.')[0]}) ｜ 產業：**{m['group']}** ｜ 資本額(股本)：**{m['capital_yi']} 億**")
             st.markdown(f"💰 收盤價：**{m['close']}** 元 ｜ 📈 成交量：**{m['volume']}** 張 (已過濾 >= 1000張)")
             
             risk_color = "red" if m['risk_pct'] < 3 else "green"

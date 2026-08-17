@@ -11,6 +11,27 @@ import io
 
 from datetime import datetime, time as dt_time
 
+# PDF 條件式匯入 (避免未安裝 reportlab 時程式崩潰)
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        PageBreak
+    )
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfbase import pdfmetrics
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+
 # ============================================================
 # 基本設定
 # ============================================================
@@ -2595,7 +2616,7 @@ if (
         )
 
         # ====================================================
-        # PDF
+        # PDF 匯出 (依 REPORTLAB_AVAILABLE 決定是否顯示)
         # ====================================================
 
         st.divider()
@@ -2604,50 +2625,56 @@ if (
             "📄 報告匯出"
         )
 
-        scan_time = (
-            datetime.now()
-            .strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-        )
-
-        try:
-
-            pdf_bytes = generate_pdf(
-
-                matches=matches,
-
-                industry_summary=
-                    industry_summary,
-
-                params=params,
-
-                scan_time=scan_time
+        if REPORTLAB_AVAILABLE:
+            scan_time = (
+                datetime.now()
+                .strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
             )
 
-            st.download_button(
+            try:
 
-                label="📥 一鍵匯出 V2.1 PDF",
+                pdf_bytes = generate_pdf(
 
-                data=pdf_bytes,
+                    matches=matches,
 
-                file_name=(
-                    "TW_V2.1_強勢突破雷達_"
-                    + datetime.now().strftime(
-                        "%Y%m%d_%H%M"
-                    )
-                    + ".pdf"
-                ),
+                    industry_summary=
+                        industry_summary,
 
-                mime="application/pdf",
+                    params=params,
 
-                type="primary"
-            )
+                    scan_time=scan_time
+                )
 
-        except Exception as e:
+                st.download_button(
 
-            st.error(
-                f"PDF產生失敗：{e}"
+                    label="📥 一鍵匯出 V2.1 PDF",
+
+                    data=pdf_bytes,
+
+                    file_name=(
+                        "TW_V2.1_強勢突破雷達_"
+                        + datetime.now().strftime(
+                            "%Y%m%d_%H%M"
+                        )
+                        + ".pdf"
+                    ),
+
+                    mime="application/pdf",
+
+                    type="primary"
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"PDF產生失敗：{e}"
+                )
+        else:
+            st.info(
+                "💡 系統偵測到未安裝 `reportlab` 套件，PDF 匯出功能目前為停用狀態。"
+                "若需啟用此功能，請在環境中執行 `pip install reportlab`。"
             )
 
         st.divider()
@@ -2910,9 +2937,9 @@ if (
             "ℹ️ 目前參數沒有找到符合條件的股票。"
         )
 
-    # ========================================================
+    # ========================================
     # 錯誤
-    # ========================================================
+    # ========================================
 
     if errors:
 

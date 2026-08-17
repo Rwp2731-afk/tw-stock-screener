@@ -248,6 +248,3 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
             st.divider()
     else:
         st.warning("ℹ️ 在目前的參數設定下，暫無符合條件的股票。")
-
-
-我要用回這個程式碼，幫我把這個程式碼在抓資本額的內容刪掉，其餘不變

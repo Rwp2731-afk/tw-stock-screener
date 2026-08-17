@@ -11,8 +11,8 @@ import time
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="台股 W底放量突破全自動雷達", layout="wide")
-st.title("📈 台股全自動選股雷達 (週20MA停損紀律與完整均線版)")
-st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描")
+st.title("📈 台股全自動選股雷達 (型態擇一彈性掃描版)")
+st.caption("自動獲取全台上市上櫃股票清單，依據動態技術參數與週 20MA 停損紅線進行強勢標的掃描（W底突破與區間創高改為擇一符合）")
 
 # 自動獲取全台股清單與基本資訊
 @st.cache_data(ttl=86400)
@@ -86,46 +86,62 @@ def plot_dividend_bar_chart(div_df):
     st.pyplot(fig)
     plt.close(fig)
 
-# 單一股票策略運算邏輯（已完美對應參數，移除資本額）
+# 單一股票策略運算邏輯（將 W底突破 與 區間創高 改為 選擇性符合條件）
 def run_strategy(ticker, name, group, params):
     try:
         stock_obj = yf.Ticker(ticker)
         df_day = stock_obj.history(period="1y", auto_adjust=True)
         df_week = stock_obj.history(period="2y", interval="1wk", auto_adjust=True)
         
-        if len(df_day) < 100 or len(df_week) < params['ma_week']:
+        if df_day is None or df_week is None or len(df_day) < 100 or len(df_week) < params['ma_week']:
             return None
             
+        # 處理 yfinance 可能的多重索引問題
+        if isinstance(df_day.columns, pd.MultiIndex):
+            df_day.columns = df_day.columns.get_level_values(0)
+        if isinstance(df_week.columns, pd.MultiIndex):
+            df_week.columns = df_week.columns.get_level_values(0)
+            
         close_day = df_day['Close'].values.flatten()
+        high_day = df_day['High'].values.flatten()
+        low_day = df_day['Low'].values.flatten()
         vol_day = df_day['Volume'].values.flatten()
         close_week = df_week['Close'].values.flatten()
         
+        # 1. 長期趨勢過濾 (週 MA) -> 必須符合
         ma_week_val = pd.Series(close_week).rolling(params['ma_week']).mean().iloc[-1]
         if not (close_week[-1] > ma_week_val):
             return None
         
+        # 2. 最低成交量過濾 -> 必須符合
         latest_vol_lots = vol_day[-1] / 1000
         if latest_vol_lots < 1000:
             return None
         
+        # 3. 爆量攻擊過濾 -> 必須符合
         ma_vol_val = pd.Series(vol_day).rolling(20).mean().iloc[-1]
         if not (vol_day[-1] >= (ma_vol_val * params['vol_multiplier'])):
             return None
         
-        breakout_days = params['breakout_days']
         latest_close = close_day[-1]
-        if not (latest_close >= np.max(df_day['High'].values.flatten()[-breakout_days:-1])):
-            return None
         
+        # 4A. 區間創高條件檢查
+        breakout_days = params['breakout_days']
+        is_breakout = (latest_close >= np.max(high_day[-breakout_days:-1]))
+        
+        # 4B. W底型態突破條件檢查
         tolerance = params['w_tolerance']
-        lows = df_day['Low'].values.flatten()[-60:]
-        min1_idx = np.argmin(lows[:30])
-        min2_idx = 30 + np.argmin(lows[30:-5])
-        neck_high = np.max(df_day['High'].values.flatten()[-60:][min1_idx:min2_idx])
-        foot1, foot2 = lows[min1_idx], lows[min2_idx]
-        cond_w = (abs(foot1 - foot2) / foot1 < tolerance) and (latest_close > neck_high)
+        lows = low_day[-60:]
+        is_w_bottom = False
+        if len(lows) >= 60:
+            min1_idx = np.argmin(lows[:30])
+            min2_idx = 30 + np.argmin(lows[30:-5])
+            neck_high = np.max(high_day[-60:][min1_idx:min2_idx])
+            foot1, foot2 = lows[min1_idx], lows[min2_idx]
+            is_w_bottom = (abs(foot1 - foot2) / foot1 < tolerance) and (latest_close > neck_high)
         
-        if not cond_w:
+        # 🌟 核心修改：改為「區間創高」與「W底突破」擇一符合即可
+        if not (is_breakout or is_w_bottom):
             return None
 
         risk_pct = ((latest_close - ma_week_val) / latest_close) * 100
@@ -182,9 +198,16 @@ if st.sidebar.button("🚀 開始全自動雷達掃描", type="primary"):
         st.info("正在計算全市場最新成交金額排序，挑選前 150 大熱門標的...")
         try:
             download_df = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
-            if 'Close' in download_df and 'Volume' in download_df:
-                latest_close = download_df['Close'].iloc[-1]
-                latest_vol = download_df['Volume'].iloc[-1]
+            if not download_df.empty and 'Close' in download_df and 'Volume' in download_df:
+                if isinstance(download_df.columns, pd.MultiIndex):
+                    close_sub = download_df['Close']
+                    vol_sub = download_df['Volume']
+                else:
+                    close_sub = download_df[['Close']]
+                    vol_sub = download_df[['Volume']]
+                
+                latest_close = close_sub.iloc[-1]
+                latest_vol = vol_sub.iloc[-1]
                 turnover = latest_close * latest_vol
                 top_turnover_tickers = turnover.sort_values(ascending=False).head(150).index.tolist()
                 target_tickers = [t for t in top_turnover_tickers if t in stocks_info]

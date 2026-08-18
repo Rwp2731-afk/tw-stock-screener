@@ -24,6 +24,91 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
+# ============================================================
+# ⭐ 主畫面 / Sidebar 寬度修正
+# ============================================================
+#
+# 目的：
+# 1. 控制台不要無限制變寬
+# 2. 右側主畫面永遠使用剩餘空間
+# 3. 瀏覽器縮放 / 視窗寬度變化時，主畫面跟著調整
+#
+# 不修改任何選股邏輯
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+
+    /* ========================================================
+       Sidebar：固定合理寬度
+       ======================================================== */
+
+    section[data-testid="stSidebar"] {
+        width: 320px !important;
+        min-width: 320px !important;
+        max-width: 320px !important;
+    }
+
+    section[data-testid="stSidebar"] > div {
+        width: 320px !important;
+    }
+
+
+    /* ========================================================
+       主畫面：取消不必要的最大寬度限制
+       ======================================================== */
+
+    .stAppViewContainer {
+        width: 100% !important;
+    }
+
+    [data-testid="stMain"] {
+        width: calc(100% - 320px) !important;
+        max-width: none !important;
+    }
+
+    [data-testid="stMainBlockContainer"] {
+        max-width: none !important;
+        width: 100% !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+
+
+    /* ========================================================
+       Streamlit 主要內容區
+       ======================================================== */
+
+    .block-container {
+        max-width: none !important;
+        width: 100% !important;
+    }
+
+
+    /* ========================================================
+       表格 / 圖表全部使用可用寬度
+       ======================================================== */
+
+    [data-testid="stDataFrame"] {
+        width: 100% !important;
+    }
+
+    [data-testid="stPlotlyChart"] {
+        width: 100% !important;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# 標題
+# ============================================================
+
 st.title("📈 台股 V2 全自動選股雷達")
 
 st.caption(
@@ -1911,25 +1996,12 @@ def plot_stock_chart(
         right=0.98
     )
 
-    # --------------------------------------------------------
-    # 額外圖例
-    # --------------------------------------------------------
-
-    if len(axes) > 0:
-
-        axes[0].text(
-            0.01,
-            0.98,
-            "紅＝漲　綠＝跌",
-            transform=axes[0].transAxes,
-            fontsize=9,
-            verticalalignment="top",
-            bbox=dict(
-                boxstyle="round,pad=0.25",
-                facecolor="white",
-                alpha=0.8
-            )
-        )
+    # ========================================================
+    # ⭐ 已移除：
+    # 「紅＝漲　綠＝跌」
+    #
+    # 因為這是基本知識，不再顯示
+    # ========================================================
 
     # ========================================================
     # Streamlit Responsive 顯示

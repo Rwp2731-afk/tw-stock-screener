@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import mplfinance as mpf
 import twstock
 import warnings
-import timeImport streamlit as st
+import time
+import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np

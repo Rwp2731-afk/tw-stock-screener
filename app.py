@@ -13,25 +13,6 @@ from datetime import time as dt_time
 
 
 # ============================================================
-# Matplotlib 中文字型設定
-# ============================================================
-
-import matplotlib.font_manager as fm
-
-available_fonts = {
-    f.name
-    for f in fm.fontManager.ttflist
-}
-
-st.write("目前可用字型：")
-st.write(
-    sorted(
-        available_fonts
-    )
-)
-
-
-# ============================================================
 # 基本設定
 # ============================================================
 
@@ -1755,7 +1736,7 @@ def plot_stock_chart(
             title_parts
         ),
 
-        ylabel="股價（元）",
+        ylabel="Price (TWD)",
 
         volume=True,
 

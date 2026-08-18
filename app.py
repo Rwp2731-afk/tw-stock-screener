@@ -3,11 +3,13 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import mplfinance as mpf
 import twstock
 import warnings
 import time
 from datetime import time as dt_time
+
 
 # ============================================================
 # 基本設定
@@ -27,21 +29,64 @@ st.caption(
     "40日創高／W底突破｜產業資金集中分析"
 )
 
+
 # ============================================================
 # 常數
 # ============================================================
 
 TW_TZ = "Asia/Taipei"
 
+# 最低成交量：1000張
 MIN_VOLUME_LOTS = 1000
 
+# K線顯示天數
 CHART_DAYS = 250
 
 # 批量下載大小
 BATCH_SIZE = 80
 
-# 批次之間稍微休息，降低 Yahoo 請求壓力
+# 批次之間休息
 BATCH_SLEEP = 0.4
+
+
+# ============================================================
+# Matplotlib 中文字型
+# ============================================================
+
+def setup_chinese_font():
+
+    candidates = [
+        "Noto Sans CJK TC",
+        "Noto Sans CJK JP",
+        "Microsoft JhengHei",
+        "PingFang TC",
+        "WenQuanYi Zen Hei",
+        "Arial Unicode MS"
+    ]
+
+    available = {
+        f.name
+        for f in fm.fontManager.ttflist
+    }
+
+    for font_name in candidates:
+
+        if font_name in available:
+
+            plt.rcParams["font.sans-serif"] = [
+                font_name
+            ]
+
+            plt.rcParams["axes.unicode_minus"] = False
+
+            return font_name
+
+    plt.rcParams["axes.unicode_minus"] = False
+
+    return None
+
+
+CHINESE_FONT = setup_chinese_font()
 
 
 # ============================================================
@@ -49,7 +94,10 @@ BATCH_SLEEP = 0.4
 # ============================================================
 
 def get_taiwan_now():
-    return pd.Timestamp.now(tz=TW_TZ)
+
+    return pd.Timestamp.now(
+        tz=TW_TZ
+    )
 
 
 def is_market_closed_for_today():
@@ -60,7 +108,10 @@ def is_market_closed_for_today():
     if now.weekday() >= 5:
         return True
 
-    market_close = dt_time(13, 30)
+    market_close = dt_time(
+        13,
+        30
+    )
 
     return now.time() >= market_close
 
@@ -76,22 +127,70 @@ def normalize_single_stock_df(df):
 
     df = df.copy()
 
-    if isinstance(df.columns, pd.MultiIndex):
+    if isinstance(
+        df.columns,
+        pd.MultiIndex
+    ):
 
-        if "Close" in df.columns.get_level_values(0):
-            df.columns = df.columns.get_level_values(0)
+        level0 = list(
+            df.columns
+            .get_level_values(0)
+        )
 
-        elif "Close" in df.columns.get_level_values(-1):
-            df.columns = df.columns.get_level_values(-1)
+        level1 = list(
+            df.columns
+            .get_level_values(1)
+        )
+
+        price_cols = {
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Adj Close",
+            "Volume"
+        }
+
+        if any(
+            x in price_cols
+            for x in level0
+        ):
+
+            df.columns = (
+                df.columns
+                .get_level_values(0)
+            )
+
+        elif any(
+            x in price_cols
+            for x in level1
+        ):
+
+            df.columns = (
+                df.columns
+                .get_level_values(1)
+            )
 
         else:
-            df.columns = df.columns.get_level_values(0)
+
+            df.columns = (
+                df.columns
+                .get_level_values(0)
+            )
 
     return df
 
 
 # ============================================================
 # 只保留完成交易日
+#
+# 盤中：
+# Yahoo 若已經出現今天資料
+# → 排除今天尚未完成的K棒
+#
+# 盤後：
+# 今天已收盤
+# → 今天K棒可以使用
 # ============================================================
 
 def prepare_completed_daily_data(df):
@@ -101,30 +200,51 @@ def prepare_completed_daily_data(df):
 
     df = df.copy()
 
-    df.index = pd.to_datetime(df.index)
+    df.index = pd.to_datetime(
+        df.index
+    )
 
     now = get_taiwan_now()
 
     today = now.date()
 
-    last_date = df.index[-1].date()
+    last_date = (
+        df.index[-1].date()
+    )
 
-    # 尚未收盤，而且 Yahoo 已經有今天資料
-    # → 移除今天未完成的日K
+    # --------------------------------------------------------
+    # 盤中發現 Yahoo 已經有今天資料
+    # → 移除今天未完成K棒
+    # --------------------------------------------------------
+
     if (
         last_date == today
         and not is_market_closed_for_today()
     ):
+
         df = df.iloc[:-1].copy()
 
     return df
 
 
 # ============================================================
-# 從完成日K建立完整週K
+# 建立完整週K
+#
+# 重要：
+#
+# 盤中：
+# 本週尚未完成 → 不使用本週週K
+#
+# 週五13:30後：
+# 本週完整 → 使用本週週K
+#
+# 六日：
+# 上週五已完成 → 使用最新週K
 # ============================================================
 
-def build_completed_weekly_data(df_day):
+def build_completed_weekly_data(
+    df_day
+):
 
     if df_day is None or df_day.empty:
         return pd.DataFrame()
@@ -141,10 +261,13 @@ def build_completed_weekly_data(df_day):
         col in df_day.columns
         for col in required_cols
     ):
+
         return pd.DataFrame()
 
     weekly = (
-        df_day[required_cols]
+        df_day[
+            required_cols
+        ]
         .resample("W-FRI")
         .agg({
             "Open": "first",
@@ -164,34 +287,51 @@ def build_completed_weekly_data(df_day):
         ]
     )
 
-    # --------------------------------------------------------
-    # 只保留完整週
-    #
-    # 如果最新一根週K不是星期五以前已完成的週，
-    # 就不使用它。
-    # --------------------------------------------------------
+    if weekly.empty:
+        return weekly
 
-    now = get_taiwan_now()
-
-    current_week_end = (
-        now.normalize()
-        + pd.Timedelta(
-            days=(4 - now.weekday()) % 7
-        )
+    last_day = (
+        pd.Timestamp(
+            df_day.index[-1]
+        ).normalize()
     )
 
-    # 更安全的做法：
-    # 只保留 index < 本週週五
-    this_friday = (
-        now.normalize()
-        + pd.Timedelta(
-            days=(4 - now.weekday())
-        )
-    )
+    weekday = last_day.weekday()
 
-    weekly = weekly[
-        weekly.index < this_friday
-    ]
+    # --------------------------------------------------------
+    # 如果最新完成交易日是週一～週四
+    # → 本週尚未完成
+    # → 排除本週
+    # --------------------------------------------------------
+
+    if weekday < 4:
+
+        this_friday = (
+            last_day
+            + pd.Timedelta(
+                days=(4 - weekday)
+            )
+        )
+
+        weekly = weekly[
+            weekly.index < this_friday
+        ]
+
+    # --------------------------------------------------------
+    # 如果最新完成交易日是週五
+    # → 代表週五已完成
+    # → 本週週K可以使用
+    # --------------------------------------------------------
+
+    else:
+
+        this_friday = (
+            last_day
+        )
+
+        weekly = weekly[
+            weekly.index <= this_friday
+        ]
 
     return weekly
 
@@ -215,6 +355,7 @@ def calculate_pivot_lows(
     if len(lows) < (
         pivot_window * 2 + 1
     ):
+
         return pivot_indices
 
     for i in range(
@@ -236,6 +377,7 @@ def calculate_pivot_lows(
             and
             lows[i] <= np.min(right)
         ):
+
             pivot_indices.append(i)
 
     return pivot_indices
@@ -256,17 +398,25 @@ def detect_w_bottom(
     max_gap=35
 ):
 
-    if len(low_day) < lookback:
+    empty_result = {
 
-        return {
-            "is_w_bottom": False,
-            "left_idx": None,
-            "right_idx": None,
-            "left_foot": None,
-            "right_foot": None,
-            "neck_high": None,
-            "foot_diff_pct": None
-        }
+        "is_w_bottom": False,
+
+        "left_idx": None,
+
+        "right_idx": None,
+
+        "left_foot": None,
+
+        "right_foot": None,
+
+        "neck_high": None,
+
+        "foot_diff_pct": None
+    }
+
+    if len(low_day) < lookback:
+        return empty_result
 
     highs = np.asarray(
         high_day[-lookback:],
@@ -289,16 +439,7 @@ def detect_w_bottom(
     )
 
     if len(pivot_lows) < 2:
-
-        return {
-            "is_w_bottom": False,
-            "left_idx": None,
-            "right_idx": None,
-            "left_foot": None,
-            "right_foot": None,
-            "neck_high": None,
-            "foot_diff_pct": None
-        }
+        return empty_result
 
     latest_close = closes[-1]
 
@@ -329,9 +470,13 @@ def detect_w_bottom(
             ):
                 continue
 
-            left_foot = lows[left_idx]
+            left_foot = lows[
+                left_idx
+            ]
 
-            right_foot = lows[right_idx]
+            right_foot = lows[
+                right_idx
+            ]
 
             if left_foot <= 0:
                 continue
@@ -352,7 +497,6 @@ def detect_w_bottom(
             if foot_diff_pct > tolerance:
                 continue
 
-            # 左右腳中間最高價
             between_highs = highs[
                 left_idx:
                 right_idx + 1
@@ -365,7 +509,6 @@ def detect_w_bottom(
                 between_highs
             )
 
-            # 頸線必須高於左右腳
             if (
                 neck_high
                 <= max(
@@ -373,13 +516,13 @@ def detect_w_bottom(
                     right_foot
                 )
             ):
+
                 continue
 
-            # 今日收盤突破頸線
+            # 最新完成交易日收盤突破頸線
             if latest_close <= neck_high:
                 continue
 
-            # 右腳之後必須反彈
             right_after = closes[
                 right_idx:
             ]
@@ -395,9 +538,9 @@ def detect_w_bottom(
                 right_rebound_high
                 <= right_foot
             ):
+
                 continue
 
-            # 右腳到頸線至少3%
             right_to_neck_pct = (
                 (
                     neck_high
@@ -411,42 +554,35 @@ def detect_w_bottom(
 
             candidates.append({
 
-                "left_idx": left_idx,
+                "left_idx":
+                    left_idx,
 
-                "right_idx": right_idx,
+                "right_idx":
+                    right_idx,
 
-                "left_foot": float(
-                    left_foot
-                ),
+                "left_foot":
+                    float(
+                        left_foot
+                    ),
 
-                "right_foot": float(
-                    right_foot
-                ),
+                "right_foot":
+                    float(
+                        right_foot
+                    ),
 
-                "neck_high": float(
-                    neck_high
-                ),
+                "neck_high":
+                    float(
+                        neck_high
+                    ),
 
-                "foot_diff_pct": float(
-                    foot_diff_pct * 100
-                )
+                "foot_diff_pct":
+                    float(
+                        foot_diff_pct * 100
+                    )
             })
 
     if not candidates:
-
-        return {
-            "is_w_bottom": False,
-            "left_idx": None,
-            "right_idx": None,
-            "left_foot": None,
-            "right_foot": None,
-            "neck_high": None,
-            "foot_diff_pct": None
-        }
-
-    # 優先：
-    # 1. 右腳較靠近現在
-    # 2. 左右腳差異較小
+        return empty_result
 
     candidates.sort(
         key=lambda x: (
@@ -541,44 +677,12 @@ def get_all_tw_stocks_info():
 
 
 # ============================================================
-# 股本估算
-# ============================================================
-
-def estimate_capital_from_market_data(
-    close_price,
-    market_cap
-):
-
-    if (
-        not np.isfinite(close_price)
-        or close_price <= 0
-    ):
-        return np.nan
-
-    if (
-        market_cap is None
-        or not np.isfinite(market_cap)
-        or market_cap <= 0
-    ):
-        return np.nan
-
-    # 市值 / 股價 ≈ 流通股數
-    shares = (
-        market_cap
-        / close_price
-    )
-
-    # 台股一般面額10元
-    # → 估算股本
-    capital = (
-        shares * 10
-    )
-
-    return capital
-
-
-# ============================================================
-# 批量下載資料
+# 批量下載市場資料
+#
+# 重點：
+# threads=False
+#
+# 不使用暴力多執行緒
 # ============================================================
 
 def download_market_data(
@@ -613,12 +717,21 @@ def download_market_data(
         try:
 
             data = yf.download(
+
                 batch,
+
                 period=period,
+
                 interval="1d",
-                auto_adjust=True,
+
+                # 不使用自動還原
+                # 避免股價與市值估算不一致
+                auto_adjust=False,
+
                 progress=False,
+
                 group_by="ticker",
+
                 threads=False
             )
 
@@ -627,38 +740,43 @@ def download_market_data(
                 and not data.empty
             ):
 
-                # 多股票批次
+                # =================================================
+                # MultiIndex
+                # =================================================
+
                 if isinstance(
                     data.columns,
                     pd.MultiIndex
                 ):
 
-                    level0 = (
+                    level0 = list(
                         data.columns
                         .get_level_values(0)
                     )
 
-                    level1 = (
+                    level1 = list(
                         data.columns
                         .get_level_values(1)
                     )
 
+                    price_cols = {
+                        "Open",
+                        "High",
+                        "Low",
+                        "Close",
+                        "Adj Close",
+                        "Volume"
+                    }
+
                     # ------------------------------------------------
-                    # 判斷 ticker 在哪一層
+                    # ticker 在第一層
                     # ------------------------------------------------
 
                     if any(
-                        x in [
-                            "Open",
-                            "High",
-                            "Low",
-                            "Close",
-                            "Volume"
-                        ]
-                        for x in level1
+                        ticker in level0
+                        for ticker in batch
                     ):
 
-                        # ticker 在第一層
                         for ticker in batch:
 
                             if ticker not in level0:
@@ -671,7 +789,17 @@ def download_market_data(
                                     .copy()
                                 )
 
-                                if not stock_df.empty:
+                                if (
+                                    stock_df is not None
+                                    and not stock_df.empty
+                                ):
+
+                                    stock_df = (
+                                        normalize_single_stock_df(
+                                            stock_df
+                                        )
+                                    )
+
                                     all_data[
                                         ticker
                                     ] = stock_df
@@ -679,9 +807,15 @@ def download_market_data(
                             except Exception:
                                 continue
 
-                    else:
+                    # ------------------------------------------------
+                    # ticker 在第二層
+                    # ------------------------------------------------
 
-                        # ticker 在第二層
+                    elif any(
+                        ticker in level1
+                        for ticker in batch
+                    ):
+
                         for ticker in batch:
 
                             if ticker not in level1:
@@ -698,7 +832,17 @@ def download_market_data(
                                     .copy()
                                 )
 
-                                if not stock_df.empty:
+                                if (
+                                    stock_df is not None
+                                    and not stock_df.empty
+                                ):
+
+                                    stock_df = (
+                                        normalize_single_stock_df(
+                                            stock_df
+                                        )
+                                    )
+
                                     all_data[
                                         ticker
                                     ] = stock_df
@@ -706,14 +850,48 @@ def download_market_data(
                             except Exception:
                                 continue
 
+                    # ------------------------------------------------
+                    # 某些 Yahoo 回傳格式：
+                    # 第一層是價格欄位
+                    # ------------------------------------------------
+
+                    elif any(
+                        x in price_cols
+                        for x in level0
+                    ):
+
+                        if len(batch) == 1:
+
+                            stock_df = data.copy()
+
+                            stock_df = (
+                                normalize_single_stock_df(
+                                    stock_df
+                                )
+                            )
+
+                            all_data[
+                                batch[0]
+                            ] = stock_df
+
                 else:
 
                     # 單一股票
                     if len(batch) == 1:
 
-                        all_data[
-                            batch[0]
-                        ] = data.copy()
+                        stock_df = data.copy()
+
+                        stock_df = (
+                            normalize_single_stock_df(
+                                stock_df
+                            )
+                        )
+
+                        if not stock_df.empty:
+
+                            all_data[
+                                batch[0]
+                            ] = stock_df
 
         except Exception:
             pass
@@ -729,6 +907,7 @@ def download_market_data(
         )
 
         if idx < len(batches):
+
             time.sleep(
                 BATCH_SLEEP
             )
@@ -741,6 +920,12 @@ def download_market_data(
 
 # ============================================================
 # 單股技術分析
+#
+# 注意：
+# 這裡不抓股本
+#
+# 股本會在技術面初篩後再抓
+# 避免1925支股票逐支查基本資料
 # ============================================================
 
 def analyze_stock(
@@ -754,12 +939,16 @@ def analyze_stock(
 
     try:
 
-        df_day = normalize_single_stock_df(
-            df_day
+        df_day = (
+            normalize_single_stock_df(
+                df_day
+            )
         )
 
-        df_day = prepare_completed_daily_data(
-            df_day
+        df_day = (
+            prepare_completed_daily_data(
+                df_day
+            )
         )
 
         if df_day.empty:
@@ -777,10 +966,13 @@ def analyze_stock(
             col in df_day.columns
             for col in required_cols
         ):
+
             return None
 
         df_day = (
-            df_day[required_cols]
+            df_day[
+                required_cols
+            ]
             .dropna()
             .copy()
         )
@@ -842,6 +1034,7 @@ def analyze_stock(
             latest_volume_lots
             < MIN_VOLUME_LOTS
         ):
+
             return None
 
         # ====================================================
@@ -864,6 +1057,7 @@ def analyze_stock(
             )
             or ma5_volume <= 0
         ):
+
             return None
 
         volume_ratio = (
@@ -875,6 +1069,7 @@ def analyze_stock(
             volume_ratio
             < params["vol_multiplier"]
         ):
+
             return None
 
         # ====================================================
@@ -892,6 +1087,7 @@ def analyze_stock(
             or len(df_week)
             < params["ma_week"]
         ):
+
             return None
 
         close_week = (
@@ -902,7 +1098,7 @@ def analyze_stock(
         )
 
         # ====================================================
-        # 4. 週20MA趨勢
+        # 4. 週MA
         # ====================================================
 
         ma_week = (
@@ -914,7 +1110,10 @@ def analyze_stock(
             .iloc[-1]
         )
 
-        if not np.isfinite(ma_week):
+        if not np.isfinite(
+            ma_week
+        ):
+
             return None
 
         latest_week_close = (
@@ -925,6 +1124,7 @@ def analyze_stock(
             latest_week_close
             <= ma_week
         ):
+
             return None
 
         # ====================================================
@@ -939,6 +1139,7 @@ def analyze_stock(
             len(close_day)
             <= breakout_days
         ):
+
             return None
 
         previous_highs = (
@@ -948,7 +1149,9 @@ def analyze_stock(
         )
 
         previous_high = float(
-            np.max(previous_highs)
+            np.max(
+                previous_highs
+            )
         )
 
         is_breakout = (
@@ -993,7 +1196,9 @@ def analyze_stock(
         )
 
         is_w_bottom = bool(
-            w_info["is_w_bottom"]
+            w_info[
+                "is_w_bottom"
+            ]
         )
 
         # ====================================================
@@ -1004,6 +1209,7 @@ def analyze_stock(
             is_breakout
             or is_w_bottom
         ):
+
             return None
 
         # ====================================================
@@ -1034,11 +1240,13 @@ def analyze_stock(
         reasons = []
 
         if is_breakout:
+
             reasons.append(
                 f"{breakout_days}日創高突破"
             )
 
         if is_w_bottom:
+
             reasons.append(
                 "W底突破"
             )
@@ -1061,24 +1269,33 @@ def analyze_stock(
 
         data_date = (
             df_day.index[-1]
-            .strftime("%Y-%m-%d")
+            .strftime(
+                "%Y-%m-%d"
+            )
         )
 
         return {
 
-            "status": "match",
+            "status":
+                "match",
 
-            "ticker": ticker,
+            "ticker":
+                ticker,
 
-            "name": name,
+            "name":
+                name,
 
-            "group": group,
+            "group":
+                group,
 
-            "market": market,
+            "market":
+                market,
 
-            "data_date": data_date,
+            "data_date":
+                data_date,
 
-            "df_day": df_day,
+            "df_day":
+                df_day,
 
             "close":
                 round(
@@ -1148,13 +1365,219 @@ def analyze_stock(
         }
 
     except Exception:
+
         return None
 
 
 # ============================================================
-# 股利
+# 股本
+#
+# 技術面初篩後才抓
+#
+# 市值 ÷ 股價 × 10元
+# ≈ 估算股本
+#
+# 注意：
+# 這是篩選用途的估算值，不是財報上的精確實收資本額。
 # ============================================================
 
+@st.cache_data(
+    ttl=86400,
+    show_spinner=False
+)
+def get_estimated_capital(
+    ticker
+):
+
+    try:
+
+        stock = yf.Ticker(
+            ticker
+        )
+
+        market_cap = np.nan
+
+        # ----------------------------------------------------
+        # 優先 fast_info
+        # ----------------------------------------------------
+
+        try:
+
+            fast_info = (
+                stock.fast_info
+            )
+
+            market_cap = (
+                fast_info.get(
+                    "market_cap",
+                    np.nan
+                )
+            )
+
+        except Exception:
+
+            market_cap = np.nan
+
+        # ----------------------------------------------------
+        # fast_info 沒有 → info
+        # ----------------------------------------------------
+
+        if (
+            not np.isfinite(
+                market_cap
+            )
+        ):
+
+            try:
+
+                info = stock.info
+
+                market_cap = (
+                    info.get(
+                        "marketCap",
+                        np.nan
+                    )
+                )
+
+            except Exception:
+
+                market_cap = np.nan
+
+        if (
+            market_cap is None
+            or not np.isfinite(
+                market_cap
+            )
+            or market_cap <= 0
+        ):
+
+            return np.nan
+
+        # ----------------------------------------------------
+        # 取得目前價格
+        # ----------------------------------------------------
+
+        try:
+
+            current_price = (
+                stock.fast_info.get(
+                    "last_price",
+                    np.nan
+                )
+            )
+
+        except Exception:
+
+            current_price = np.nan
+
+        if (
+            current_price is None
+            or not np.isfinite(
+                current_price
+            )
+            or current_price <= 0
+        ):
+
+            return np.nan
+
+        # ----------------------------------------------------
+        # 市值 / 股價 = 股數
+        #
+        # 股本 ≈ 股數 × 10元
+        # ----------------------------------------------------
+
+        shares = (
+            market_cap
+            / current_price
+        )
+
+        capital = (
+            shares * 10
+        )
+
+        return float(
+            capital
+        )
+
+    except Exception:
+
+        return np.nan
+
+
+# ============================================================
+# 股本篩選
+# ============================================================
+
+def apply_capital_filter(
+    matches,
+    min_capital
+):
+
+    if not matches:
+
+        return []
+
+    capital_progress = st.progress(
+        0
+    )
+
+    capital_status = st.empty()
+
+    capital_matches = []
+
+    total = len(matches)
+
+    for idx, m in enumerate(
+        matches,
+        start=1
+    ):
+
+        capital = (
+            get_estimated_capital(
+                m["ticker"]
+            )
+        )
+
+        m["estimated_capital"] = (
+            capital
+        )
+
+        if (
+            np.isfinite(capital)
+            and capital >= min_capital
+        ):
+
+            capital_matches.append(
+                m
+            )
+
+        capital_progress.progress(
+            idx / total
+        )
+
+        capital_status.text(
+            f"股本資料："
+            f"{idx}/{total}"
+            f"｜符合股本："
+            f"{len(capital_matches)} 支"
+        )
+
+    capital_progress.empty()
+    capital_status.empty()
+
+    return capital_matches
+
+
+# ============================================================
+# 股利
+#
+# 最後才抓
+# ============================================================
+
+@st.cache_data(
+    ttl=86400,
+    show_spinner=False
+)
 def get_dividend_history(
     ticker
 ):
@@ -1165,12 +1588,15 @@ def get_dividend_history(
             ticker
         )
 
-        dividends = stock.dividends
+        dividends = (
+            stock.dividends
+        )
 
         if (
             dividends is None
             or dividends.empty
         ):
+
             return pd.DataFrame(
                 columns=[
                     "年份",
@@ -1187,7 +1613,9 @@ def get_dividend_history(
         )
 
         div_df = pd.DataFrame({
-            "Dividend": dividends
+
+            "Dividend":
+                dividends
         })
 
         div_df["Year"] = (
@@ -1245,7 +1673,7 @@ def plot_dividend_bar_chart(
 ):
 
     fig, ax = plt.subplots(
-        figsize=(10, 3.2)
+        figsize=(10, 3.0)
     )
 
     years = (
@@ -1269,9 +1697,12 @@ def plot_dividend_bar_chart(
 
     for bar in bars:
 
-        height = bar.get_height()
+        height = (
+            bar.get_height()
+        )
 
         ax.annotate(
+
             f"{height:g}",
 
             xy=(
@@ -1316,7 +1747,8 @@ def plot_dividend_bar_chart(
     plt.tight_layout()
 
     st.pyplot(
-        fig
+        fig,
+        use_container_width=True
     )
 
     plt.close(fig)
@@ -1324,6 +1756,13 @@ def plot_dividend_bar_chart(
 
 # ============================================================
 # 台股 K線圖
+#
+# 重點修正：
+#
+# 1. 紅漲綠跌
+# 2. 不把長篇文字塞進 title
+# 3. 中文圖例
+# 4. 簡短標題
 # ============================================================
 
 def plot_stock_chart(
@@ -1346,8 +1785,10 @@ def plot_stock_chart(
         .copy()
     )
 
-    plot_df = normalize_single_stock_df(
-        plot_df
+    plot_df = (
+        normalize_single_stock_df(
+            plot_df
+        )
     )
 
     if plot_df.empty:
@@ -1374,10 +1815,10 @@ def plot_stock_chart(
     )
 
     # --------------------------------------------------------
-    # 台股顏色
+    # 台股：
     #
-    # 紅漲
-    # 綠跌
+    # 上漲 = 紅色
+    # 下跌 = 綠色
     # --------------------------------------------------------
 
     market_colors = (
@@ -1411,18 +1852,19 @@ def plot_stock_chart(
         mpf.make_addplot(
             ma20,
             color="dodgerblue",
-            width=1.4
+            width=1.3
         ),
 
         # 日100MA
         mpf.make_addplot(
             ma100,
             color="purple",
-            width=1.6
+            width=1.4
         ),
 
-        # 週20MA停損
+        # 週20MA
         mpf.make_addplot(
+
             [
                 ma_week_val
             ] * len(plot_df),
@@ -1431,7 +1873,7 @@ def plot_stock_chart(
 
             linestyle="dashed",
 
-            width=1.2
+            width=1.1
         )
     ]
 
@@ -1443,7 +1885,9 @@ def plot_stock_chart(
 
         neck = (
             m["w_info"]
-            .get("neck_high")
+            .get(
+                "neck_high"
+            )
         )
 
         if neck is not None:
@@ -1460,33 +1904,24 @@ def plot_stock_chart(
 
                     linestyle="dashdot",
 
-                    width=1.2
+                    width=1.1
                 )
             )
 
     # --------------------------------------------------------
-    # 中文訊號
-    # --------------------------------------------------------
-
-    signal_text = (
-        m["signal_type"]
-    )
-
-    # --------------------------------------------------------
     # 簡短標題
+    #
+    # 不再把收盤、MA、距離、訊號全部塞到標題
+    # 避免K線圖被壓縮
     # --------------------------------------------------------
+
+    code = (
+        ticker
+        .split(".")[0]
+    )
 
     title = (
-        f"{m['ticker'].split('.')[0]} "
-        f"{name}"
-    )
-
-    subtitle = (
-        f"收盤：{m['close']:.2f}　"
-        f"週{20}MA：{ma_week_val:.2f}　"
-        f"距離："
-        f"{m['distance_to_week_ma_pct']:.2f}%　"
-        f"訊號：{signal_text}"
+        f"{code} {name}"
     )
 
     # --------------------------------------------------------
@@ -1503,12 +1938,7 @@ def plot_stock_chart(
 
         addplot=addplots,
 
-        title=(
-            "\n"
-            + title
-            + "\n"
-            + subtitle
-        ),
+        title=title,
 
         ylabel="價格（元）",
 
@@ -1516,9 +1946,9 @@ def plot_stock_chart(
 
         ylabel_lower="成交量",
 
-        figratio=(16, 8),
+        figratio=(15, 8),
 
-        figscale=1.25,
+        figscale=1.35,
 
         returnfig=True,
 
@@ -1559,7 +1989,7 @@ def plot_stock_chart(
                 color="red",
                 lw=2,
                 linestyle="--",
-                label="週20MA停損線"
+                label="週20MA"
             )
         ]
 
@@ -1580,7 +2010,8 @@ def plot_stock_chart(
         ax.legend(
             handles=legend_items,
             loc="upper left",
-            fontsize=9
+            fontsize=9,
+            frameon=True
         )
 
     st.pyplot(
@@ -1601,7 +2032,8 @@ st.sidebar.header(
 
 st.sidebar.info(
     "本版本固定掃描：\n\n"
-    "🇹🇼 全台上市＋上櫃"
+    "🇹🇼 全台上市＋上櫃\n\n"
+    "不再限制成交金額前150大"
 )
 
 st.sidebar.divider()
@@ -1610,9 +2042,10 @@ st.sidebar.subheader(
     "⚙️ 技術策略參數"
 )
 
-# ------------------------------------------------------------
+
+# ============================================================
 # 股本
-# ------------------------------------------------------------
+# ============================================================
 
 min_capital_billion = (
     st.sidebar.number_input(
@@ -1629,14 +2062,15 @@ min_capital_billion = (
     )
 )
 
-# ------------------------------------------------------------
+
+# ============================================================
 # 成交量
-# ------------------------------------------------------------
+# ============================================================
 
 vol_multiplier = (
     st.sidebar.slider(
 
-        "放量倍數（今日 vs 5日均量）",
+        "放量倍數（最新完成交易日 vs 5日均量）",
 
         min_value=1.0,
 
@@ -1648,9 +2082,10 @@ vol_multiplier = (
     )
 )
 
-# ------------------------------------------------------------
+
+# ============================================================
 # 突破
-# ------------------------------------------------------------
+# ============================================================
 
 breakout_days = (
     st.sidebar.number_input(
@@ -1667,9 +2102,10 @@ breakout_days = (
     )
 )
 
-# ------------------------------------------------------------
+
+# ============================================================
 # 週MA
-# ------------------------------------------------------------
+# ============================================================
 
 ma_week = (
     st.sidebar.number_input(
@@ -1686,9 +2122,10 @@ ma_week = (
     )
 )
 
-# ------------------------------------------------------------
+
+# ============================================================
 # W底
-# ------------------------------------------------------------
+# ============================================================
 
 st.sidebar.subheader(
     "🔵 W底參數"
@@ -1753,9 +2190,16 @@ w_max_gap = (
 
         step=1
     )
+
 )
 
+# 固定60日
 w_lookback = 60
+
+
+# ============================================================
+# Parameters
+# ============================================================
 
 params = {
 
@@ -1767,26 +2211,37 @@ params = {
         vol_multiplier,
 
     "breakout_days":
-        int(breakout_days),
+        int(
+            breakout_days
+        ),
 
     "ma_week":
-        int(ma_week),
+        int(
+            ma_week
+        ),
 
     "w_tolerance":
         w_tolerance,
 
     "pivot_window":
-        int(pivot_window),
+        int(
+            pivot_window
+        ),
 
     "w_min_gap":
-        int(w_min_gap),
+        int(
+            w_min_gap
+        ),
 
     "w_max_gap":
-        int(w_max_gap),
+        int(
+            w_max_gap
+        ),
 
     "w_lookback":
         w_lookback
 }
+
 
 st.sidebar.divider()
 
@@ -1794,21 +2249,34 @@ st.sidebar.markdown(
     """
 ### 📌 V2.1 選股邏輯
 
-**必要條件**
+**第一層：快速技術篩選**
 
-1. 最低股本
-2. 今日成交量 ≥ 1,000張
-3. 今日成交量 ≥ 5日均量 × 設定倍數
-4. 股價 > 完整週20MA
+1. 最新完成交易日成交量 ≥ 1,000張
+2. 最新完成交易日成交量 ≥ 5日均量 × 設定倍數
+3. 股價 > 完整週20MA
 
-**型態條件擇一**
+**第二層：型態**
 
 - 40日創高
 - W底突破
 
-**兩者同時成立 → 雙重訊號**
+兩者擇一即可。
+
+兩者同時成立：
+
+**🔥 雙重訊號**
+
+**第三層：股本**
+
+只對技術面入選股票抓市值，
+估算股本後再套用最低股本。
+
+**第四層：股利**
+
+最後才抓股利資料。
 """
 )
+
 
 # ============================================================
 # 開始掃描
@@ -1818,6 +2286,8 @@ if st.sidebar.button(
     "🚀 開始 V2.1 全市場掃描",
     type="primary"
 ):
+
+    overall_start = time.time()
 
     # ========================================================
     # 取得股票清單
@@ -1833,10 +2303,12 @@ if st.sidebar.button(
 
     st.info(
         f"🇹🇼 全台上市＋上櫃"
-        f"｜共 {len(all_tickers)} 支股票"
+        f"｜目前股票清單："
+        f"**{len(all_tickers)} 支**"
     )
 
     # ========================================================
+    # 第一階段
     # 批量下載
     # ========================================================
 
@@ -1860,24 +2332,14 @@ if st.sidebar.button(
 
     st.success(
         f"資料下載完成："
-        f"{len(market_data)} 支"
+        f"**{len(market_data)} 支**"
         f"｜耗時 "
         f"{download_elapsed:.1f} 秒"
     )
 
     # ========================================================
-    # 第一層：基本資料／股本
-    #
-    # 注意：
-    # yfinance 批量下載沒有完整可靠的股本欄位。
-    # 因此股本使用：
-    #
-    # 市值 ÷ 股價 × 10元
-    #
-    # 估算。
-    #
-    # 若 Yahoo 無法提供市值，該股票不因股本估算失敗
-    # 直接淘汰，而是繼續技術篩選。
+    # 第二階段
+    # 快速技術篩選
     # ========================================================
 
     st.subheader(
@@ -1886,11 +2348,19 @@ if st.sidebar.button(
 
     matches = []
 
-    errors = []
-
     total = len(
         market_data
     )
+
+    if total == 0:
+
+        st.error(
+            "⚠️ Yahoo Finance 沒有成功取得股票資料。"
+            "這通常是資料來源暫時限制或批量下載格式問題，"
+            "不是選股條件本身造成的。"
+        )
+
+        st.stop()
 
     progress = st.progress(
         0
@@ -1910,7 +2380,9 @@ if st.sidebar.button(
         if info is None:
             continue
 
-        df = market_data[ticker]
+        df = market_data[
+            ticker
+        ]
 
         result = analyze_stock(
 
@@ -1943,8 +2415,9 @@ if st.sidebar.button(
             )
 
             status.text(
-                f"分析：{idx}/{total}"
-                f"｜目前符合："
+                f"分析："
+                f"{idx}/{total}"
+                f"｜技術面符合："
                 f"{len(matches)} 支"
             )
 
@@ -1957,244 +2430,404 @@ if st.sidebar.button(
     )
 
     # ========================================================
+    # 技術面沒有股票
+    # ========================================================
+
+    if not matches:
+
+        elapsed = (
+            time.time()
+            - overall_start
+        )
+
+        st.warning(
+            "ℹ️ 目前參數設定下，"
+            "沒有股票通過技術面條件。"
+        )
+
+        st.info(
+            f"掃描 {len(market_data)} 支"
+            f"｜耗時 {elapsed:.1f} 秒"
+        )
+
+        st.stop()
+
+    # ========================================================
+    # 第三階段
+    # 股本篩選
+    # ========================================================
+
+    st.subheader(
+        "💰 第三階段：股本篩選"
+    )
+
+    capital_start = time.time()
+
+    capital_matches = (
+        apply_capital_filter(
+            matches,
+            params["min_capital"]
+        )
+    )
+
+    capital_elapsed = (
+        time.time()
+        - capital_start
+    )
+
+    st.success(
+        f"股本篩選完成："
+        f"技術面 {len(matches)} 支"
+        f" → 股本符合 "
+        f"**{len(capital_matches)} 支**"
+        f"｜耗時 "
+        f"{capital_elapsed:.1f} 秒"
+    )
+
+    matches = capital_matches
+
+    # ========================================================
+    # 股本全部淘汰
+    # ========================================================
+
+    if not matches:
+
+        elapsed = (
+            time.time()
+            - overall_start
+        )
+
+        st.warning(
+            "ℹ️ 技術面有符合股票，"
+            "但全部未達目前設定的最低股本。"
+        )
+
+        st.info(
+            f"最低股本："
+            f"{min_capital_billion:.1f} 億元"
+            f"｜總耗時："
+            f"{elapsed:.1f} 秒"
+        )
+
+        st.stop()
+
+    # ========================================================
+    # 排序
+    # ========================================================
+
+    matches.sort(
+
+        key=lambda x: (
+
+            (
+                x["is_breakout"]
+                + x["is_w_bottom"]
+            ),
+
+            x["volume_ratio"],
+
+            x[
+                "distance_to_week_ma_pct"
+            ]
+        ),
+
+        reverse=True
+    )
+
+    # ========================================================
+    # 第四階段
+    # 最後才抓股利
+    # ========================================================
+
+    st.subheader(
+        "💵 第四階段：補充股利資料"
+    )
+
+    dividend_progress = st.progress(
+        0
+    )
+
+    dividend_status = st.empty()
+
+    for idx, m in enumerate(
+        matches,
+        start=1
+    ):
+
+        m["div_history"] = (
+            get_dividend_history(
+                m["ticker"]
+            )
+        )
+
+        dividend_progress.progress(
+            idx / len(matches)
+        )
+
+        dividend_status.text(
+            f"股利資料："
+            f"{idx}/{len(matches)}"
+        )
+
+        time.sleep(
+            0.08
+        )
+
+    dividend_progress.empty()
+    dividend_status.empty()
+
+    # ========================================================
     # 完成
     # ========================================================
 
     elapsed = (
         time.time()
-        - start_time
+        - overall_start
     )
 
     st.success(
         f"🎉 V2.1 掃描完成！"
         f"｜掃描 {len(market_data)} 支"
-        f"｜符合 {len(matches)} 支"
+        f"｜技術面 {len(capital_matches)} 支"
+        f"｜最終入選 {len(matches)} 支"
         f"｜耗時 {elapsed:.1f} 秒"
     )
 
     # ========================================================
-    # 結果
+    # 產業集中統計
     # ========================================================
 
-    if matches:
+    st.divider()
 
-        # ----------------------------------------------------
-        # 排序：
-        #
-        # 1. 雙重訊號
-        # 2. 放量倍數
-        # 3. 距週MA
-        #
-        # 同產業後面會再整理
-        # ----------------------------------------------------
+    st.subheader(
+        "🔥 市場資金集中產業"
+    )
 
-        matches.sort(
+    industry_df = (
+        pd.DataFrame([
 
-            key=lambda x: (
-
-                (
-                    x["is_breakout"]
-                    + x["is_w_bottom"]
-                ),
-
-                x["volume_ratio"],
-
-                x[
-                    "distance_to_week_ma_pct"
-                ]
-            ),
-
-            reverse=True
-        )
-
-        # ====================================================
-        # 最後才抓股利
-        # ====================================================
-
-        st.subheader(
-            "💰 最終入選股票：補充股利資料"
-        )
-
-        dividend_progress = st.progress(
-            0
-        )
-
-        dividend_status = st.empty()
-
-        for idx, m in enumerate(
-            matches,
-            start=1
-        ):
-
-            m["div_history"] = (
-                get_dividend_history(
-                    m["ticker"]
-                )
-            )
-
-            dividend_progress.progress(
-                idx / len(matches)
-            )
-
-            dividend_status.text(
-                f"股利資料："
-                f"{idx}/{len(matches)}"
-            )
-
-            # 稍微放慢，避免最後集中打 Yahoo
-            time.sleep(0.08)
-
-        dividend_progress.empty()
-        dividend_status.empty()
-
-        # ====================================================
-        # 產業集中統計
-        # ====================================================
-
-        st.divider()
-
-        st.subheader(
-            "🔥 市場資金集中產業"
-        )
-
-        industry_df = (
-            pd.DataFrame([
-                {
-                    "產業":
-                        m["group"],
-
-                    "入選家數":
-                        1,
-
-                    "雙重訊號":
-                        int(
-                            m["signal_type"]
-                            == "雙重訊號"
-                        )
-                }
-                for m in matches
-            ])
-            .groupby(
-                "產業",
-                as_index=False
-            )
-            .sum()
-            .sort_values(
-                [
-                    "入選家數",
-                    "雙重訊號"
-                ],
-                ascending=False
-            )
-        )
-
-        industry_df[
-            "排名"
-        ] = range(
-            1,
-            len(industry_df) + 1
-        )
-
-        industry_df = (
-            industry_df[
-                [
-                    "排名",
-                    "產業",
-                    "入選家數",
-                    "雙重訊號"
-                ]
-            ]
-        )
-
-        st.dataframe(
-            industry_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # ----------------------------------------------------
-        # 市場集中提醒
-        # ----------------------------------------------------
-
-        if not industry_df.empty:
-
-            top_industry = (
-                industry_df.iloc[0]
-            )
-
-            st.info(
-                f"🔥 目前入選最多的產業："
-                f"**{top_industry['產業']}**"
-                f"｜共 "
-                f"**{top_industry['入選家數']}** "
-                f"支"
-            )
-
-        # ====================================================
-        # 總覽表
-        # ====================================================
-
-        st.divider()
-
-        st.subheader(
-            f"📊 入選股票總覽 "
-            f"（共 {len(matches)} 支）"
-        )
-
-        summary_rows = []
-
-        # ----------------------------------------------------
-        # 先按產業，再按訊號強度
-        # ----------------------------------------------------
-
-        sorted_matches = sorted(
-
-            matches,
-
-            key=lambda x: (
-
-                x["group"],
-
-                -(
-                    x["is_breakout"]
-                    + x["is_w_bottom"]
-                ),
-
-                -x["volume_ratio"]
-            )
-        )
-
-        for m in sorted_matches:
-
-            summary_rows.append({
-
+            {
                 "產業":
                     m["group"],
+
+                "入選家數":
+                    1,
+
+                "雙重訊號":
+                    int(
+                        m["signal_type"]
+                        == "雙重訊號"
+                    )
+            }
+
+            for m in matches
+        ])
+        .groupby(
+            "產業",
+            as_index=False
+        )
+        .sum()
+        .sort_values(
+
+            [
+                "入選家數",
+                "雙重訊號"
+            ],
+
+            ascending=False
+        )
+    )
+
+    industry_df[
+        "排名"
+    ] = range(
+        1,
+        len(industry_df) + 1
+    )
+
+    industry_df = (
+        industry_df[
+            [
+                "排名",
+                "產業",
+                "入選家數",
+                "雙重訊號"
+            ]
+        ]
+    )
+
+    st.dataframe(
+        industry_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    if not industry_df.empty:
+
+        top_industry = (
+            industry_df.iloc[0]
+        )
+
+        st.info(
+            f"🔥 目前入選最多的產業："
+            f"**{top_industry['產業']}**"
+            f"｜共 "
+            f"**{top_industry['入選家數']}** 支"
+        )
+
+    # ========================================================
+    # 總覽表
+    # ========================================================
+
+    st.divider()
+
+    st.subheader(
+        f"📊 入選股票總覽 "
+        f"（共 {len(matches)} 支）"
+    )
+
+    summary_rows = []
+
+    sorted_matches = sorted(
+
+        matches,
+
+        key=lambda x: (
+
+            x["group"],
+
+            -(
+                x["is_breakout"]
+                + x["is_w_bottom"]
+            ),
+
+            -x["volume_ratio"]
+        )
+    )
+
+    for m in sorted_matches:
+
+        capital_billion = (
+            m["estimated_capital"]
+            / 100_000_000
+        )
+
+        summary_rows.append({
+
+            "產業":
+                m["group"],
+
+            "股票":
+                f"{m['name']} "
+                f"({m['ticker'].split('.')[0]})",
+
+            "市場":
+                m["market"],
+
+            "股本":
+                f"{capital_billion:.1f} 億",
+
+            "收盤":
+                m["close"],
+
+            f"週{params['ma_week']}MA":
+                m["ma_week_val"],
+
+            "距週MA":
+                f"{m['distance_to_week_ma_pct']:.2f}%",
+
+            "最新成交量":
+                f"{m['volume']:,} 張",
+
+            "5日均量":
+                f"{m['volume_avg_5']:,.0f} 張",
+
+            "放量":
+                f"{m['volume_ratio']:.2f}x",
+
+            "40日創高":
+                "✅"
+                if m["is_breakout"]
+                else "—",
+
+            "W底突破":
+                "✅"
+                if m["is_w_bottom"]
+                else "—",
+
+            "訊號":
+                m["signal_type"],
+
+            "資料日期":
+                m["data_date"]
+        })
+
+    summary_df = pd.DataFrame(
+        summary_rows
+    )
+
+    st.dataframe(
+        summary_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # ========================================================
+    # 各產業詳細股票
+    # ========================================================
+
+    st.divider()
+
+    st.subheader(
+        "🏭 產業分組結果"
+    )
+
+    for industry in (
+        industry_df["產業"]
+    ):
+
+        industry_matches = [
+
+            m
+
+            for m in sorted_matches
+
+            if m["group"]
+            == industry
+        ]
+
+        st.markdown(
+            f"### 🏭 {industry}"
+            f"　"
+            f"({len(industry_matches)} 支)"
+        )
+
+        industry_rows = []
+
+        for m in industry_matches:
+
+            capital_billion = (
+                m["estimated_capital"]
+                / 100_000_000
+            )
+
+            industry_rows.append({
 
                 "股票":
                     f"{m['name']} "
                     f"({m['ticker'].split('.')[0]})",
 
-                "市場":
-                    m["market"],
+                "股本":
+                    f"{capital_billion:.1f} 億",
 
                 "收盤":
                     m["close"],
 
-                f"週{params['ma_week']}MA":
-                    m["ma_week_val"],
+                "放量":
+                    f"{m['volume_ratio']:.2f}x",
 
                 "距週MA":
                     f"{m['distance_to_week_ma_pct']:.2f}%",
-
-                "今日成交量":
-                    f"{m['volume']:,}",
-
-                "5日均量":
-                    f"{m['volume_avg_5']:,.0f}",
-
-                "放量":
-                    f"{m['volume_ratio']:.2f}x",
 
                 "40日創高":
                     "✅"
@@ -2207,279 +2840,238 @@ if st.sidebar.button(
                     else "—",
 
                 "訊號":
-                    m["signal_type"],
-
-                "資料日期":
-                    m["data_date"]
+                    m["signal_type"]
             })
 
-        summary_df = pd.DataFrame(
-            summary_rows
-        )
-
         st.dataframe(
-            summary_df,
+
+            pd.DataFrame(
+                industry_rows
+            ),
+
             use_container_width=True,
+
             hide_index=True
         )
 
-        # ====================================================
-        # 各產業詳細股票
-        # ====================================================
+    # ========================================================
+    # 個股詳細分析
+    # ========================================================
 
-        st.divider()
+    st.divider()
 
-        st.subheader(
-            "🏭 產業分組結果"
+    st.subheader(
+        "📌 個股詳細分析"
+    )
+
+    for m in sorted_matches:
+
+        st.markdown(
+            f"## 📌 {m['name']} "
+            f"({m['ticker'].split('.')[0]})"
         )
 
-        for industry in (
-            industry_df["產業"]
-        ):
+        capital_billion = (
+            m["estimated_capital"]
+            / 100_000_000
+        )
 
-            industry_matches = [
-                m
-                for m in sorted_matches
-                if m["group"]
-                == industry
+        st.markdown(
+            f"**{m['market']}｜"
+            f"產業：{m['group']}｜"
+            f"股本：約 "
+            f"{capital_billion:.1f} 億元｜"
+            f"資料日期：{m['data_date']}**"
+        )
+
+        # ====================================================
+        # 第一排
+        # ====================================================
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
+        )
+
+        with c1:
+
+            st.metric(
+                "收盤價",
+                f"{m['close']:.2f} 元"
+            )
+
+        with c2:
+
+            st.metric(
+                f"週{params['ma_week']}MA",
+                f"{m['ma_week_val']:.2f} 元"
+            )
+
+        with c3:
+
+            st.metric(
+                "距週MA",
+                f"{m['distance_to_week_ma_pct']:.2f}%"
+            )
+
+        with c4:
+
+            st.metric(
+                "股本",
+                f"{capital_billion:.1f} 億"
+            )
+
+        # ====================================================
+        # 第二排
+        # ====================================================
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
+        )
+
+        with c1:
+
+            st.metric(
+                "最新成交量",
+                f"{m['volume']:,} 張"
+            )
+
+        with c2:
+
+            st.metric(
+                "5日均量",
+                f"{m['volume_avg_5']:,.0f} 張"
+            )
+
+        with c3:
+
+            st.metric(
+                "實際放量",
+                f"{m['volume_ratio']:.2f}x"
+            )
+
+        with c4:
+
+            st.metric(
+                f"{params['breakout_days']}日高",
+                f"{m['previous_high']:.2f}"
+            )
+
+        # ====================================================
+        # 第三排
+        # ====================================================
+
+        c1, c2 = (
+            st.columns(2)
+        )
+
+        with c1:
+
+            st.metric(
+                "突破幅度",
+                f"{m['breakout_distance_pct']:.2f}%"
+            )
+
+        with c2:
+
+            st.metric(
+                "訊號",
+                m["signal_type"]
+            )
+
+        # ====================================================
+        # 入選原因
+        # ====================================================
+
+        st.markdown(
+            "### 🎯 入選原因"
+        )
+
+        for reason in m["reasons"]:
+
+            st.success(
+                f"✅ {reason}"
+            )
+
+        # ====================================================
+        # W底
+        # ====================================================
+
+        if m["is_w_bottom"]:
+
+            w = m["w_info"]
+
+            st.markdown(
+                "### 🔵 W底結構"
+            )
+
+            w1, w2, w3, w4 = (
+                st.columns(4)
+            )
+
+            with w1:
+
+                st.metric(
+                    "左腳",
+                    f"{w['left_foot']:.2f}"
+                )
+
+            with w2:
+
+                st.metric(
+                    "右腳",
+                    f"{w['right_foot']:.2f}"
+                )
+
+            with w3:
+
+                st.metric(
+                    "頸線",
+                    f"{w['neck_high']:.2f}"
+                )
+
+            with w4:
+
+                st.metric(
+                    "左右腳差異",
+                    f"{w['foot_diff_pct']:.2f}%"
+                )
+
+        # ====================================================
+        # 週MA風險
+        # ====================================================
+
+        distance = (
+            m[
+                "distance_to_week_ma_pct"
             ]
-
-            st.markdown(
-                f"### 🏭 {industry}"
-                f"　"
-                f"({len(industry_matches)} 支)"
-            )
-
-            industry_rows = []
-
-            for m in industry_matches:
-
-                industry_rows.append({
-
-                    "股票":
-                        f"{m['name']} "
-                        f"({m['ticker'].split('.')[0]})",
-
-                    "收盤":
-                        m["close"],
-
-                    "放量":
-                        f"{m['volume_ratio']:.2f}x",
-
-                    "距週MA":
-                        f"{m['distance_to_week_ma_pct']:.2f}%",
-
-                    "40日創高":
-                        "✅"
-                        if m["is_breakout"]
-                        else "—",
-
-                    "W底突破":
-                        "✅"
-                        if m["is_w_bottom"]
-                        else "—",
-
-                    "訊號":
-                        m["signal_type"]
-                })
-
-            st.dataframe(
-                pd.DataFrame(
-                    industry_rows
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
-
-        # ====================================================
-        # 個股詳細資料
-        # ====================================================
-
-        st.divider()
-
-        st.subheader(
-            "📌 個股詳細分析"
         )
 
-        for m in sorted_matches:
+        if distance < 3:
 
-            st.markdown(
-                f"## 📌 {m['name']} "
-                f"({m['ticker'].split('.')[0]})"
+            risk_label = (
+                "🔴 非常接近週MA"
             )
 
-            st.markdown(
-                f"**{m['market']}｜"
-                f"產業：{m['group']}｜"
-                f"資料日期：{m['data_date']}**"
+        elif distance < 7:
+
+            risk_label = (
+                "🟡 距週MA適中"
             )
 
-            # ------------------------------------------------
-            # 第一排
-            # ------------------------------------------------
+        elif distance < 12:
 
-            c1, c2, c3, c4 = (
-                st.columns(4)
+            risk_label = (
+                "🟢 距週MA較寬"
             )
 
-            with c1:
+        else:
 
-                st.metric(
-                    "收盤價",
-                    f"{m['close']:.2f} 元"
-                )
-
-            with c2:
-
-                st.metric(
-                    f"週{params['ma_week']}MA",
-                    f"{m['ma_week_val']:.2f} 元"
-                )
-
-            with c3:
-
-                st.metric(
-                    "距週MA",
-                    f"{m['distance_to_week_ma_pct']:.2f}%"
-                )
-
-            with c4:
-
-                st.metric(
-                    "今日成交量",
-                    f"{m['volume']:,} 張"
-                )
-
-            # ------------------------------------------------
-            # 第二排
-            # ------------------------------------------------
-
-            c1, c2, c3, c4 = (
-                st.columns(4)
+            risk_label = (
+                "🟠 距週MA過遠，注意追高"
             )
 
-            with c1:
-
-                st.metric(
-                    "5日均量",
-                    f"{m['volume_avg_5']:,.0f} 張"
-                )
-
-            with c2:
-
-                st.metric(
-                    "實際放量",
-                    f"{m['volume_ratio']:.2f}x"
-                )
-
-            with c3:
-
-                st.metric(
-                    f"{params['breakout_days']}日高",
-                    f"{m['previous_high']:.2f}"
-                )
-
-            with c4:
-
-                st.metric(
-                    "突破幅度",
-                    f"{m['breakout_distance_pct']:.2f}%"
-                )
-
-            # ------------------------------------------------
-            # 入選原因
-            # ------------------------------------------------
-
-            st.markdown(
-                "### 🎯 入選原因"
-            )
-
-            for reason in m["reasons"]:
-
-                st.success(
-                    f"✅ {reason}"
-                )
-
-            # ------------------------------------------------
-            # W底
-            # ------------------------------------------------
-
-            if m["is_w_bottom"]:
-
-                w = m["w_info"]
-
-                st.markdown(
-                    "### 🔵 W底結構"
-                )
-
-                w1, w2, w3, w4 = (
-                    st.columns(4)
-                )
-
-                with w1:
-
-                    st.metric(
-                        "左腳",
-                        f"{w['left_foot']:.2f}"
-                    )
-
-                with w2:
-
-                    st.metric(
-                        "右腳",
-                        f"{w['right_foot']:.2f}"
-                    )
-
-                with w3:
-
-                    st.metric(
-                        "頸線",
-                        f"{w['neck_high']:.2f}"
-                    )
-
-                with w4:
-
-                    st.metric(
-                        "左右腳差異",
-                        f"{w['foot_diff_pct']:.2f}%"
-                    )
-
-            # ------------------------------------------------
-            # 週MA風險
-            # ------------------------------------------------
-
-            distance = (
-                m[
-                    "distance_to_week_ma_pct"
-                ]
-            )
-
-            if distance < 3:
-
-                risk_label = (
-                    "🔴 非常接近週MA"
-                )
-
-            elif distance < 7:
-
-                risk_label = (
-                    "🟡 距週MA適中"
-                )
-
-            elif distance < 12:
-
-                risk_label = (
-                    "🟢 距週MA較寬"
-                )
-
-            else:
-
-                risk_label = (
-                    "🟠 距週MA過遠，注意追高"
-                )
-
-            st.markdown(
-                f"""
+        st.markdown(
+            f"""
 **🛡️ 週{params['ma_week']}MA：**
 {m['ma_week_val']:.2f} 元
 
@@ -2492,49 +3084,42 @@ if st.sidebar.button(
 > 週MA僅作為技術面停損參考，
 > 不代表實際最大損失。
 """
-            )
+        )
 
-            # ------------------------------------------------
-            # 股利
-            # ------------------------------------------------
+        # ====================================================
+        # 股利
+        # ====================================================
 
-            if (
-                not m[
-                    "div_history"
-                ].empty
-            ):
-
-                st.markdown(
-                    "### 💰 近十年現金股利"
-                )
-
-                plot_dividend_bar_chart(
-                    m["div_history"]
-                )
-
-            else:
-
-                st.info(
-                    "沒有可取得的近期股利資料。"
-                )
-
-            # ------------------------------------------------
-            # K線
-            # ------------------------------------------------
+        if (
+            not m[
+                "div_history"
+            ].empty
+        ):
 
             st.markdown(
-                "### 📈 技術K線"
+                "### 💰 近十年現金股利"
             )
 
-            plot_stock_chart(
-                m
+            plot_dividend_bar_chart(
+                m["div_history"]
             )
 
-            st.divider()
+        else:
 
-    else:
+            st.info(
+                "沒有可取得的近期股利資料。"
+            )
 
-        st.warning(
-            "ℹ️ 目前參數設定下，"
-            "沒有找到符合條件的股票。"
+        # ====================================================
+        # K線
+        # ====================================================
+
+        st.markdown(
+            "### 📈 技術K線"
         )
+
+        plot_stock_chart(
+            m
+        )
+
+        st.divider()

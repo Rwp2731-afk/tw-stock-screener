@@ -11,6 +11,7 @@ import requests
 
 from datetime import time as dt_time
 
+
 # ============================================================
 # 基本設定
 # ============================================================
@@ -22,13 +23,48 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# ============================================================
+# Sidebar 寬度調整
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+
+    /* 控制台寬度 */
+    [data-testid="stSidebar"] {
+        min-width: 300px;
+        max-width: 320px;
+    }
+
+    [data-testid="stSidebar"] > div:first-child {
+        width: 320px;
+    }
+
+    /* 主畫面標題不要過度壓縮 */
+    .block-container {
+        padding-top: 1.5rem;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# 標題
+# ============================================================
+
 st.title("📈 台股 V2 全自動選股雷達")
 
 st.caption(
-    "V2 加速版：全台上市＋上櫃｜股本過濾｜"
+    "V2 穩定版：全台上市＋上櫃｜股本過濾｜"
     "已完成交易日｜週20MA｜5日均量放量｜"
     "40日創高 OR W底突破｜產業集中分析"
 )
+
 
 # ============================================================
 # 常數
@@ -46,10 +82,10 @@ BATCH_SIZE = 80
 
 REQUEST_TIMEOUT = 15
 
+
 # ============================================================
 # Streamlit Cache
 # ============================================================
-
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_company_capital_data():
@@ -150,6 +186,7 @@ def get_company_capital_data():
     except Exception:
         pass
 
+
     # ========================================================
     # 上櫃
     # ========================================================
@@ -235,7 +272,6 @@ def get_company_capital_data():
 # Yahoo 欄位處理
 # ============================================================
 
-
 def flatten_yfinance_columns(df):
 
     if df is None or df.empty:
@@ -276,7 +312,6 @@ def flatten_yfinance_columns(df):
 # 台灣時間
 # ============================================================
 
-
 def get_taiwan_now():
 
     return pd.Timestamp.now(
@@ -306,7 +341,6 @@ def is_market_closed_for_today():
 # 只保留已完成交易日
 # ============================================================
 
-
 def prepare_completed_daily_data(
     df_day
 ):
@@ -332,8 +366,6 @@ def prepare_completed_daily_data(
         df_day.index[-1].date()
     )
 
-    # 如果今天還沒收盤
-    # 排除今日未完成K
     if (
         last_date == today
         and not is_market_closed_for_today()
@@ -351,7 +383,6 @@ def prepare_completed_daily_data(
 # ============================================================
 # 建立完整週K
 # ============================================================
-
 
 def build_completed_weekly_data(
     df_day
@@ -400,8 +431,6 @@ def build_completed_weekly_data(
         ]
     )
 
-    # 如果目前星期尚未結束，
-    # 最後一根週K不使用
     now = get_taiwan_now()
 
     if now.weekday() < 5:
@@ -423,7 +452,6 @@ def build_completed_weekly_data(
 # ============================================================
 # Pivot Low
 # ============================================================
-
 
 def calculate_pivot_lows(
     low_values,
@@ -471,7 +499,6 @@ def calculate_pivot_lows(
 # ============================================================
 # W底
 # ============================================================
-
 
 def detect_w_bottom(
     high_day,
@@ -739,7 +766,6 @@ def detect_w_bottom(
 # 股票清單
 # ============================================================
 
-
 @st.cache_data(
     ttl=86400,
     show_spinner=False
@@ -794,7 +820,6 @@ def get_all_tw_stocks_info():
 # 快速第一層篩選
 # ============================================================
 
-
 def fast_filter_batch(
     batch_df,
     stocks_info,
@@ -814,10 +839,6 @@ def fast_filter_batch(
     ):
 
         return candidates, errors
-
-    # --------------------------------------------------------
-    # yfinance 多股票下載格式
-    # --------------------------------------------------------
 
     if not isinstance(
         batch_df.columns,
@@ -858,10 +879,6 @@ def fast_filter_batch(
 
         return candidates, errors
 
-    # --------------------------------------------------------
-    # 逐股票第一層過濾
-    # --------------------------------------------------------
-
     for ticker in close_df.columns:
 
         if ticker not in stocks_info:
@@ -899,8 +916,7 @@ def fast_filter_batch(
                 capital_map.get(code)
             )
 
-            # 如果查不到股本
-            # 不直接淘汰，避免 API 異常造成 0 檔
+            # 查不到股本不直接淘汰
             if (
                 capital is not None
                 and capital < min_capital
@@ -966,11 +982,7 @@ def fast_filter_batch(
                 continue
 
             # ------------------------------------------------
-            # 5日均量
-            #
-            # 注意：
-            # 是「前5個完成交易日」
-            # 不包含今天
+            # 前5日均量
             # ------------------------------------------------
 
             if len(volume_series) < 6:
@@ -1078,7 +1090,6 @@ def fast_filter_batch(
 # 第二層：單股完整技術分析
 # ============================================================
 
-
 def analyze_candidate(
     candidate,
     stocks_info,
@@ -1090,11 +1101,6 @@ def analyze_candidate(
     )
 
     try:
-
-        # ----------------------------------------------------
-        # 重新抓單股完整資料
-        # 只有第一層通過才抓
-        # ----------------------------------------------------
 
         stock_obj = yf.Ticker(
             ticker
@@ -1263,6 +1269,12 @@ def analyze_candidate(
             )
         )
 
+        if (
+            avg_5_volume <= 0
+        ):
+
+            return None
+
         volume_ratio = (
             latest_volume
             / avg_5_volume
@@ -1295,6 +1307,9 @@ def analyze_candidate(
                 -(breakout_days + 1):-1
             ]
         )
+
+        if len(previous_highs) == 0:
+            return None
 
         previous_high = (
             np.max(previous_highs)
@@ -1395,7 +1410,6 @@ def analyze_candidate(
         # ====================================================
 
         distance_to_week_ma_pct = (
-
             (
                 latest_close
                 - ma_week_val
@@ -1412,7 +1426,6 @@ def analyze_candidate(
             stocks_info[ticker]["code"]
         )
 
-        # 從 candidate 帶進來
         capital = (
             candidate.get("capital")
         )
@@ -1534,7 +1547,6 @@ def analyze_candidate(
 # 最後才抓股利
 # ============================================================
 
-
 def get_dividend_history(
     ticker
 ):
@@ -1624,7 +1636,6 @@ def get_dividend_history(
 # 股利圖
 # ============================================================
 
-
 def plot_dividend_bar_chart(
     div_df
 ):
@@ -1673,13 +1684,13 @@ def plot_dividend_bar_chart(
         )
 
     ax.set_title(
-        "Recent 10-Year Cash Dividend",
+        "近十年現金股利",
         fontsize=11,
         fontweight="bold"
     )
 
     ax.set_ylabel(
-        "Dividend (TWD)"
+        "股利（元）"
     )
 
     ax.spines[
@@ -1705,9 +1716,9 @@ def plot_dividend_bar_chart(
 # K線圖
 # ============================================================
 
-
 def plot_stock_chart(
     ticker,
+    stock_name,
     df_day,
     ma_week_val,
     breakout_days,
@@ -1730,6 +1741,10 @@ def plot_stock_chart(
         )
     )
 
+    # ========================================================
+    # 台股均線
+    # ========================================================
+
     ma20 = (
         plot_df["Close"]
         .rolling(20)
@@ -1742,18 +1757,49 @@ def plot_stock_chart(
         .mean()
     )
 
+    # ========================================================
+    # 台股顏色
+    #
+    # 上漲 = 紅
+    # 下跌 = 綠
+    # ========================================================
+
+    market_colors = mpf.make_marketcolors(
+
+        up="red",
+
+        down="green",
+
+        edge="inherit",
+
+        wick="inherit",
+
+        volume="inherit"
+    )
+
+    chart_style = mpf.make_mpf_style(
+
+        base_mpf_style="yahoo",
+
+        marketcolors=market_colors
+    )
+
+    # ========================================================
+    # 均線
+    # ========================================================
+
     addplots = [
 
         mpf.make_addplot(
             ma20,
             color="dodgerblue",
-            width=1.5
+            width=1.3
         ),
 
         mpf.make_addplot(
             ma100,
             color="purple",
-            width=1.8
+            width=1.5
         ),
 
         mpf.make_addplot(
@@ -1765,6 +1811,10 @@ def plot_stock_chart(
             width=1.2
         )
     ]
+
+    # ========================================================
+    # W底頸線
+    # ========================================================
 
     if w_info.get(
         "is_w_bottom"
@@ -1789,24 +1839,52 @@ def plot_stock_chart(
                 )
             )
 
-    title_parts = [
-        f"{ticker} - V2 Trend Radar",
-        f"Weekly MA20 Stop: {ma_week_val:.2f}"
-    ]
+    # ========================================================
+    # 不再把長英文塞進 K 線圖標題
+    # ========================================================
+
+    signal_text = []
 
     if is_breakout:
 
-        title_parts.append(
-            f"{breakout_days}D Breakout"
+        signal_text.append(
+            f"{breakout_days}日突破"
         )
 
     if w_info.get(
         "is_w_bottom"
     ):
 
-        title_parts.append(
-            "W-Bottom"
+        signal_text.append(
+            "W底突破"
         )
+
+    signal_label = (
+        "＋".join(signal_text)
+        if signal_text
+        else "技術型態"
+    )
+
+    # ========================================================
+    # 圖上方簡潔中文標題
+    # ========================================================
+
+    st.markdown(
+        f"""
+**📈 {stock_name}（{ticker.replace('.TW', '').replace('.TWO', '')}）｜{signal_label}**
+
+🔵 20日均線　🟣 100日均線　🔴 週{20}MA　🟠 W底頸線
+
+🔴 紅K＝上漲　🟢 綠K＝下跌
+"""
+    )
+
+    # ========================================================
+    # K線
+    #
+    # 不使用長英文 title
+    # 避免壓縮 K 線
+    # ========================================================
 
     fig, axes = mpf.plot(
 
@@ -1814,29 +1892,29 @@ def plot_stock_chart(
 
         type="candle",
 
-        style="yahoo",
+        style=chart_style,
 
         addplot=addplots,
 
-        title="\n"
-        + " | ".join(
-            title_parts
-        ),
-
-        ylabel="Price (TWD)",
-
         volume=True,
 
-        ylabel_lower="Volume",
+        ylabel="價格",
+
+        ylabel_lower="成交量",
 
         figratio=(16, 9),
 
-        figscale=1.1,
+        figscale=1.15,
+
+        tight_layout=True,
 
         returnfig=True
     )
 
-    st.pyplot(fig)
+    st.pyplot(
+        fig,
+        use_container_width=True
+    )
 
     plt.close(fig)
 
@@ -1844,7 +1922,6 @@ def plot_stock_chart(
 # ============================================================
 # Sidebar
 # ============================================================
-
 
 st.sidebar.header(
     "🔍 V2 全自動選股控制台"
@@ -1864,7 +1941,6 @@ st.sidebar.subheader(
 # ============================================================
 # 股本
 # ============================================================
-
 
 min_capital_yi = (
     st.sidebar.number_input(
@@ -1891,7 +1967,6 @@ min_capital = (
 # 5日均量
 # ============================================================
 
-
 vol_multiplier = (
     st.sidebar.slider(
 
@@ -1911,7 +1986,6 @@ vol_multiplier = (
 # ============================================================
 # 突破
 # ============================================================
-
 
 breakout_days = (
     st.sidebar.number_input(
@@ -1933,7 +2007,6 @@ breakout_days = (
 # 週MA
 # ============================================================
 
-
 ma_week = (
     st.sidebar.number_input(
 
@@ -1953,7 +2026,6 @@ ma_week = (
 # ============================================================
 # W底
 # ============================================================
-
 
 w_tolerance = (
     st.sidebar.slider(
@@ -2020,6 +2092,10 @@ w_max_gap = (
 )
 
 
+# ============================================================
+# 參數
+# ============================================================
+
 params = {
 
     "min_capital":
@@ -2051,6 +2127,10 @@ params = {
 }
 
 
+# ============================================================
+# 條件摘要
+# ============================================================
+
 st.sidebar.divider()
 
 st.sidebar.markdown(
@@ -2064,8 +2144,7 @@ st.sidebar.markdown(
 ≥ {MIN_VOLUME_LOTS:,} 張
 
 **放量：**
-今日量 ≥ 前5日均量 ×
-{vol_multiplier:.1f}
+今日量 ≥ 前5日均量 × {vol_multiplier:.1f}
 
 **趨勢：**
 股價 > 週{ma_week}MA
@@ -2077,9 +2156,57 @@ st.sidebar.markdown(
 
 
 # ============================================================
-# 開始掃描
+# 選股架構說明
 # ============================================================
 
+with st.expander(
+    "📊 查看 V2 選股邏輯",
+    expanded=False
+):
+
+    st.markdown(
+        """
+### V2 強勢突破選股流程
+
+```text
+                 全台上市＋上櫃
+                       │
+                       ▼
+                  【股本過濾】
+                       │
+                       ▼
+                  【基本流動性】
+                       │
+                       ▼
+             【5日均量放量 ≥ X倍】
+                       │
+                       ▼
+                【週20MA多頭】
+                       │
+                       ▼
+             ┌─────────┴─────────┐
+             ▼                   ▼
+        【40日創高】          【W底突破】
+             └─────────┬─────────┘
+                       ▼
+                  【符合即入選】
+                       │
+                       ▼
+               【產業分類統計】
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+     產業集中排名                 個股排名
+          │                         │
+          ▼                         ▼
+   哪些族群有資金？       哪些股票訊號最強？
+        """
+    )
+
+
+# ============================================================
+# 開始掃描
+# ============================================================
 
 if st.sidebar.button(
     "🚀 開始 V2 全自動雷達掃描",
@@ -2243,10 +2370,6 @@ if st.sidebar.button(
             f"{len(fast_candidates)} 支"
         )
 
-        # ====================================================
-        # 不暴力轟炸 Yahoo
-        # ====================================================
-
         time.sleep(0.25)
 
     progress.progress(1.0)
@@ -2330,7 +2453,7 @@ if st.sidebar.button(
     progress2.progress(1.0)
 
     # ========================================================
-    # 最後才抓股利
+    # 第三階段：股利
     # ========================================================
 
     st.subheader(
@@ -2571,9 +2694,7 @@ if st.sidebar.button(
                 f"""
 ### 📌 {m['name']}（{m['code']}）
 
-**{m['market']}｜"
-                f"產業：{m['group']}｜"
-                f"資料日期：{m['data_date']}**
+**{m['market']}｜產業：{m['group']}｜資料日期：{m['data_date']}**
 """
             )
 
@@ -2808,12 +2929,14 @@ if st.sidebar.button(
             # ------------------------------------------------
 
             st.markdown(
-                "#### 📈 技術圖"
+                "#### 📈 台股 K 線"
             )
 
             plot_stock_chart(
 
                 ticker=m["ticker"],
+
+                stock_name=m["name"],
 
                 df_day=m["df_day"],
 

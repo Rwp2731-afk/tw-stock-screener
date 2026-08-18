@@ -1614,6 +1614,7 @@ def plot_dividend_bar_chart(
 
 def plot_stock_chart(
     ticker,
+    stock_name,
     df_day,
     ma_week_val,
     breakout_days,

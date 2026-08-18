@@ -34,62 +34,6 @@ st.caption(
 
 
 # ============================================================
-# ★ 畫面配置
-#
-# 重要：
-# 不設定 Sidebar 固定寬度
-# 不設定 main width: calc(...)
-# 不強迫左右欄位使用固定像素
-#
-# 讓 Streamlit 自己管理：
-# Sidebar 開啟 → Main 自動使用剩餘空間
-# Sidebar 收起 → Main 自動吃滿整個畫面
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    /* ================================================
-       主畫面容器
-       不設定固定像素寬度
-       讓 Streamlit 的 wide layout 自己計算
-       ================================================ */
-
-    section[data-testid="stMain"] .block-container {
-        width: 100%;
-        max-width: none;
-    }
-
-    /* ================================================
-       避免內容被不必要的固定寬度限制
-       ================================================ */
-
-    [data-testid="stAppViewContainer"] {
-        width: 100%;
-    }
-
-    /* ================================================
-       Sidebar
-       ★ 不設定 width
-       ★ 不設定 min-width
-       ★ 不設定 max-width
-       ★ 不設定 calc()
-       
-       完全交給 Streamlit 原生控制
-       ================================================ */
-
-    section[data-testid="stSidebar"] {
-        max-width: none;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
 # 常數
 # ============================================================
 
@@ -115,10 +59,6 @@ def get_company_capital_data():
 
     """
     取得上市＋上櫃公司實收資本額。
-
-    優先使用：
-    1. TWSE 上市公司基本資料
-    2. TPEx 上櫃公司基本資料
 
     回傳：
         {
@@ -287,6 +227,7 @@ def get_company_capital_data():
 
     except Exception:
         pass
+
 
     return capital_map
 
@@ -584,11 +525,7 @@ def detect_w_bottom(
 
     for left_idx in pivot_lows:
 
-        if (
-            left_idx
-            >= lookback // 2
-        ):
-
+        if left_idx >= lookback // 2:
             continue
 
         for right_idx in pivot_lows:
@@ -596,11 +533,7 @@ def detect_w_bottom(
             if right_idx <= left_idx:
                 continue
 
-            if (
-                right_idx
-                >= lookback - 5
-            ):
-
+            if right_idx >= lookback - 5:
                 continue
 
             gap = (
@@ -613,16 +546,11 @@ def detect_w_bottom(
                 or
                 gap > max_gap
             ):
-
                 continue
 
-            left_foot = (
-                lows[left_idx]
-            )
+            left_foot = lows[left_idx]
 
-            right_foot = (
-                lows[right_idx]
-            )
+            right_foot = lows[right_idx]
 
             if left_foot <= 0:
                 continue
@@ -640,19 +568,13 @@ def detect_w_bottom(
                 / avg_foot
             )
 
-            if (
-                foot_diff_pct
-                > tolerance
-            ):
-
+            if foot_diff_pct > tolerance:
                 continue
 
-            between_highs = (
-                highs[
-                    left_idx:
-                    right_idx + 1
-                ]
-            )
+            between_highs = highs[
+                left_idx:
+                right_idx + 1
+            ]
 
             if len(between_highs) == 0:
                 continue
@@ -668,28 +590,26 @@ def detect_w_bottom(
                     right_foot
                 )
             ):
-
                 continue
 
             if latest_close <= neck_high:
                 continue
 
-            right_after = (
-                closes[right_idx:]
-            )
+            right_after = closes[
+                right_idx:
+            ]
 
             if len(right_after) < 2:
                 continue
 
-            right_rebound_high = (
-                np.max(right_after)
+            right_rebound_high = np.max(
+                right_after
             )
 
             if (
                 right_rebound_high
                 <= right_foot
             ):
-
                 continue
 
             right_to_neck_pct = (
@@ -927,10 +847,6 @@ def fast_filter_batch(
             if len(close_series) < 80:
                 continue
 
-            # ------------------------------------------------
-            # 股本
-            # ------------------------------------------------
-
             code = (
                 stocks_info[ticker]["code"]
             )
@@ -943,12 +859,7 @@ def fast_filter_batch(
                 capital is not None
                 and capital < min_capital
             ):
-
                 continue
-
-            # ------------------------------------------------
-            # 最新完成交易日
-            # ------------------------------------------------
 
             today = (
                 get_taiwan_now()
@@ -992,20 +903,11 @@ def fast_filter_batch(
                 latest_volume / 1000
             )
 
-            # ------------------------------------------------
-            # 最低成交量
-            # ------------------------------------------------
-
             if (
                 latest_volume_lots
                 < MIN_VOLUME_LOTS
             ):
-
                 continue
-
-            # ------------------------------------------------
-            # 前5日均量
-            # ------------------------------------------------
 
             if len(volume_series) < 6:
                 continue
@@ -1025,7 +927,6 @@ def fast_filter_batch(
                 )
                 or avg_5_volume <= 0
             ):
-
                 continue
 
             volume_ratio = (
@@ -1037,12 +938,7 @@ def fast_filter_batch(
                 volume_ratio
                 < vol_multiplier
             ):
-
                 continue
-
-            # ------------------------------------------------
-            # 40日創高
-            # ------------------------------------------------
 
             if len(high_series) <= breakout_days:
                 continue
@@ -1138,7 +1034,6 @@ def analyze_candidate(
             df_day is None
             or df_day.empty
         ):
-
             return None
 
         df_day = flatten_yfinance_columns(
@@ -1166,7 +1061,6 @@ def analyze_candidate(
             col in df_day.columns
             for col in required_cols
         ):
-
             return None
 
         df_day = (
@@ -1179,10 +1073,6 @@ def analyze_candidate(
         if len(df_day) < 120:
             return None
 
-        # ----------------------------------------------------
-        # 週K
-        # ----------------------------------------------------
-
         df_week = (
             build_completed_weekly_data(
                 df_day
@@ -1194,7 +1084,6 @@ def analyze_candidate(
             or len(df_week)
             < params["ma_week"]
         ):
-
             return None
 
         close_day = (
@@ -1223,7 +1112,7 @@ def analyze_candidate(
         )
 
         # ====================================================
-        # 1. 週MA
+        # 週MA
         # ====================================================
 
         ma_week_series = (
@@ -1245,14 +1134,12 @@ def analyze_candidate(
         if not np.isfinite(
             ma_week_val
         ):
-
             return None
 
         if (
             latest_week_close
             <= ma_week_val
         ):
-
             return None
 
         # ====================================================
@@ -1272,7 +1159,7 @@ def analyze_candidate(
         )
 
         # ====================================================
-        # 2. 前5日均量
+        # 5日均量
         # ====================================================
 
         previous_5_volume = (
@@ -1282,7 +1169,6 @@ def analyze_candidate(
         if len(
             previous_5_volume
         ) < 5:
-
             return None
 
         avg_5_volume = (
@@ -1290,13 +1176,6 @@ def analyze_candidate(
                 previous_5_volume
             )
         )
-
-        if (
-            avg_5_volume <= 0
-            or not np.isfinite(avg_5_volume)
-        ):
-
-            return None
 
         volume_ratio = (
             latest_volume
@@ -1307,18 +1186,16 @@ def analyze_candidate(
             latest_volume_lots
             < MIN_VOLUME_LOTS
         ):
-
             return None
 
         if (
             volume_ratio
             < params["vol_multiplier"]
         ):
-
             return None
 
         # ====================================================
-        # 3. 40日突破
+        # 40日突破
         # ====================================================
 
         breakout_days = (
@@ -1330,9 +1207,6 @@ def analyze_candidate(
                 -(breakout_days + 1):-1
             ]
         )
-
-        if len(previous_highs) == 0:
-            return None
 
         previous_high = (
             np.max(previous_highs)
@@ -1353,7 +1227,7 @@ def analyze_candidate(
         )
 
         # ====================================================
-        # 4. W底
+        # W底
         # ====================================================
 
         w_info = detect_w_bottom(
@@ -1384,15 +1258,10 @@ def analyze_candidate(
             w_info["is_w_bottom"]
         )
 
-        # ====================================================
-        # 型態擇一
-        # ====================================================
-
         if not (
             is_breakout
             or is_w_bottom
         ):
-
             return None
 
         # ====================================================
@@ -1433,7 +1302,6 @@ def analyze_candidate(
         # ====================================================
 
         distance_to_week_ma_pct = (
-
             (
                 latest_close
                 - ma_week_val
@@ -1442,10 +1310,6 @@ def analyze_candidate(
             * 100
         )
 
-        # ====================================================
-        # 股票代號 / 股本
-        # ====================================================
-
         code = (
             stocks_info[ticker]["code"]
         )
@@ -1453,10 +1317,6 @@ def analyze_candidate(
         capital = (
             candidate.get("capital")
         )
-
-        # ====================================================
-        # 回傳
-        # ====================================================
 
         return {
 
@@ -1664,14 +1524,13 @@ def plot_dividend_bar_chart(
     div_df
 ):
 
-    if (
-        div_df is None
-        or div_df.empty
-    ):
-        return
+    # --------------------------------------------------------
+    # 這裡仍然使用合理的 figsize，
+    # 但最後交給 Streamlit 撐滿容器
+    # --------------------------------------------------------
 
     fig, ax = plt.subplots(
-        figsize=(10, 3.5)
+        figsize=(12, 4)
     )
 
     years = (
@@ -1714,13 +1573,13 @@ def plot_dividend_bar_chart(
         )
 
     ax.set_title(
-        "近十年現金股利",
+        "Recent 10-Year Cash Dividend",
         fontsize=11,
         fontweight="bold"
     )
 
     ax.set_ylabel(
-        "股利（元）"
+        "Dividend (TWD)"
     )
 
     ax.spines[
@@ -1737,6 +1596,10 @@ def plot_dividend_bar_chart(
 
     plt.tight_layout()
 
+    # ========================================================
+    # ★ 重要修改
+    # ========================================================
+
     st.pyplot(
         fig,
         use_container_width=True
@@ -1746,7 +1609,7 @@ def plot_dividend_bar_chart(
 
 
 # ============================================================
-# 台股 K線圖
+# K線圖
 # ============================================================
 
 def plot_stock_chart(
@@ -1757,12 +1620,6 @@ def plot_stock_chart(
     is_breakout,
     w_info
 ):
-
-    if (
-        df_day is None
-        or df_day.empty
-    ):
-        return
 
     plot_df = (
         df_day
@@ -1778,10 +1635,6 @@ def plot_stock_chart(
             plot_df
         )
     )
-
-    # --------------------------------------------------------
-    # 日MA
-    # --------------------------------------------------------
 
     ma20 = (
         plot_df["Close"]
@@ -1799,14 +1652,14 @@ def plot_stock_chart(
 
         mpf.make_addplot(
             ma20,
-            color="blue",
-            width=1.2
+            color="dodgerblue",
+            width=1.5
         ),
 
         mpf.make_addplot(
             ma100,
             color="purple",
-            width=1.5
+            width=1.8
         ),
 
         mpf.make_addplot(
@@ -1818,10 +1671,6 @@ def plot_stock_chart(
             width=1.2
         )
     ]
-
-    # --------------------------------------------------------
-    # W底頸線
-    # --------------------------------------------------------
 
     if w_info.get(
         "is_w_bottom"
@@ -1846,69 +1695,15 @@ def plot_stock_chart(
                 )
             )
 
-    # ========================================================
-    # 台股配色
-    #
-    # 上漲 = 紅
-    # 下跌 = 綠
-    # ========================================================
-
-    market_colors = mpf.make_marketcolors(
-
-        up="red",
-
-        down="green",
-
-        edge={
-            "up": "red",
-            "down": "green"
-        },
-
-        wick={
-            "up": "red",
-            "down": "green"
-        },
-
-        volume={
-            "up": "red",
-            "down": "green"
-        },
-
-        inherit=False
-    )
-
-    tw_style = mpf.make_mpf_style(
-
-        base_mpf_style="classic",
-
-        marketcolors=market_colors,
-
-        gridstyle="--",
-
-        gridcolor="lightgray",
-
-        facecolor="white",
-
-        edgecolor="black",
-
-        figcolor="white"
-    )
-
-    # ========================================================
-    # 簡短標題
-    #
-    # ★ 保留目前不會產生亂碼的版本
-    # ========================================================
-
     title_parts = [
-        f"{ticker}｜V2 技術圖",
-        f"週MA{20 if ma_week_val else ''}"
+        f"{ticker} - V2 Trend Radar",
+        f"Weekly MA20 Stop: {ma_week_val:.2f}"
     ]
 
     if is_breakout:
 
         title_parts.append(
-            f"{breakout_days}日突破"
+            f"{breakout_days}D Breakout"
         )
 
     if w_info.get(
@@ -1916,15 +1711,14 @@ def plot_stock_chart(
     ):
 
         title_parts.append(
-            "W底突破"
+            "W-Bottom"
         )
 
-    chart_title = (
-        "｜".join(title_parts)
-    )
-
     # ========================================================
-    # 圖表
+    # ★ K線圖本體
+    #
+    # 不用固定 figsize
+    # 讓 Streamlit 負責容器寬度
     # ========================================================
 
     fig, axes = mpf.plot(
@@ -1933,56 +1727,30 @@ def plot_stock_chart(
 
         type="candle",
 
-        style=tw_style,
+        style="yahoo",
 
         addplot=addplots,
 
-        title=chart_title,
+        title="\n"
+        + " | ".join(
+            title_parts
+        ),
 
-        ylabel="價格",
+        ylabel="Price (TWD)",
 
         volume=True,
 
-        ylabel_lower="成交量",
+        ylabel_lower="Volume",
 
-        figratio=(16, 8),
+        figratio=(16, 9),
 
         figscale=1.0,
-
-        datetime_format="%m/%d",
-
-        xrotation=0,
-
-        tight_layout=True,
 
         returnfig=True
     )
 
-    # --------------------------------------------------------
-    # 調整圖表空間
-    # --------------------------------------------------------
-
-    fig.subplots_adjust(
-        top=0.93,
-        bottom=0.08,
-        left=0.06,
-        right=0.98
-    )
-
     # ========================================================
-    # ★ 移除：
-    # 「紅＝漲　綠＝跌」
-    #
-    # 因為這是基本知識，不需要再佔圖表空間
-    # ========================================================
-
-    # 不再加入任何 axes[0].text()
-
-    # ========================================================
-    # ★ 重要
-    #
-    # 不設定固定 width / height
-    # 讓 Streamlit 自己依 Main Container 寬度縮放
+    # ★ 重要修改
     # ========================================================
 
     st.pyplot(
@@ -1994,7 +1762,7 @@ def plot_stock_chart(
 
 
 # ============================================================
-# Sidebar / 選股控制台
+# Sidebar
 # ============================================================
 
 st.sidebar.header(
@@ -2166,6 +1934,10 @@ w_max_gap = (
 )
 
 
+# ============================================================
+# 參數
+# ============================================================
+
 params = {
 
     "min_capital":
@@ -2198,7 +1970,7 @@ params = {
 
 
 # ============================================================
-# Sidebar 條件摘要
+# Sidebar 條件
 # ============================================================
 
 st.sidebar.divider()
@@ -2214,8 +1986,7 @@ st.sidebar.markdown(
 ≥ {MIN_VOLUME_LOTS:,} 張
 
 **放量：**
-今日量 ≥ 前5日均量 ×
-{vol_multiplier:.1f}
+今日量 ≥ 前5日均量 × {vol_multiplier:.1f}
 
 **趨勢：**
 股價 > 週{ma_week}MA
@@ -2238,7 +2009,7 @@ if st.sidebar.button(
     scan_start = time.time()
 
     # ========================================================
-    # 取得股票清單
+    # 股票清單
     # ========================================================
 
     stocks_info = (
@@ -2258,8 +2029,9 @@ if st.sidebar.button(
         f"{len(stocks_info)} 支"
     )
 
+
     # ========================================================
-    # 取得股本資料
+    # 股本資料
     # ========================================================
 
     with st.spinner(
@@ -2274,6 +2046,7 @@ if st.sidebar.button(
         f"股本資料取得完成："
         f"{len(capital_map)} 家"
     )
+
 
     # ========================================================
     # 第一層：批量下載
@@ -2303,6 +2076,7 @@ if st.sidebar.button(
             )
         )
     )
+
 
     for batch_number, start in enumerate(
         range(
@@ -2394,7 +2168,9 @@ if st.sidebar.button(
 
         time.sleep(0.25)
 
+
     progress.progress(1.0)
+
 
     # ========================================================
     # 第一層結果
@@ -2420,8 +2196,9 @@ if st.sidebar.button(
 
         st.stop()
 
+
     # ========================================================
-    # 第二層：完整技術分析
+    # 第二層
     # ========================================================
 
     st.subheader(
@@ -2437,6 +2214,7 @@ if st.sidebar.button(
     total_candidates = (
         len(fast_candidates)
     )
+
 
     for i, candidate in enumerate(
         fast_candidates,
@@ -2472,10 +2250,12 @@ if st.sidebar.button(
 
         time.sleep(0.05)
 
+
     progress2.progress(1.0)
 
+
     # ========================================================
-    # 最後才抓股利
+    # 第三階段：股利
     # ========================================================
 
     st.subheader(
@@ -2506,6 +2286,7 @@ if st.sidebar.button(
 
         time.sleep(0.05)
 
+
     # ========================================================
     # 排序
     # ========================================================
@@ -2529,10 +2310,12 @@ if st.sidebar.button(
         )
     )
 
+
     elapsed = (
         time.time()
         - scan_start
     )
+
 
     # ========================================================
     # 完成
@@ -2554,6 +2337,7 @@ if st.sidebar.button(
 {elapsed:.1f} 秒
 """
     )
+
 
     # ========================================================
     # 產業集中分析
@@ -2606,6 +2390,7 @@ if st.sidebar.button(
             "可用來觀察目前強勢股是否集中於特定產業，"
             "不等同於真正的市場資金流向。"
         )
+
 
         # ====================================================
         # 總覽表
@@ -2700,6 +2485,7 @@ if st.sidebar.button(
             hide_index=True
         )
 
+
         # ====================================================
         # 詳細資料
         # ====================================================
@@ -2710,7 +2496,12 @@ if st.sidebar.button(
             "📊 入選股票詳細分析"
         )
 
+
         for m in matches:
+
+            # =================================================
+            # ★ 修正原本 markdown 字串
+            # =================================================
 
             st.markdown(
                 f"""
@@ -2719,6 +2510,7 @@ if st.sidebar.button(
 **{m['market']}｜產業：{m['group']}｜資料日期：{m['data_date']}**
 """
             )
+
 
             # ------------------------------------------------
             # 第一排
@@ -2760,6 +2552,7 @@ if st.sidebar.button(
                     )
                 )
 
+
             # ------------------------------------------------
             # 第二排
             # ------------------------------------------------
@@ -2796,6 +2589,7 @@ if st.sidebar.button(
                     m["signal_type"]
                 )
 
+
             # ------------------------------------------------
             # 突破
             # ------------------------------------------------
@@ -2816,6 +2610,7 @@ if st.sidebar.button(
                     f"{m['breakout_distance_pct']:.2f}%"
                 )
 
+
             # ------------------------------------------------
             # 入選原因
             # ------------------------------------------------
@@ -2829,6 +2624,7 @@ if st.sidebar.button(
                 st.success(
                     f"✅ {reason}"
                 )
+
 
             # ------------------------------------------------
             # W底
@@ -2873,6 +2669,7 @@ if st.sidebar.button(
                         "左右腳差異",
                         f"{w['foot_diff_pct']:.2f}%"
                     )
+
 
             # ------------------------------------------------
             # 停損
@@ -2923,6 +2720,7 @@ if st.sidebar.button(
 """
             )
 
+
             # ------------------------------------------------
             # 股利
             # ------------------------------------------------
@@ -2945,6 +2743,7 @@ if st.sidebar.button(
                 st.info(
                     "沒有可取得的近期股利資料。"
                 )
+
 
             # ------------------------------------------------
             # K線
@@ -2975,11 +2774,13 @@ if st.sidebar.button(
 
             st.divider()
 
+
     else:
 
         st.warning(
             "ℹ️ 目前參數下沒有符合條件的股票。"
         )
+
 
     # ========================================================
     # 批量資料錯誤

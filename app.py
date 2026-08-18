@@ -2069,7 +2069,7 @@ def plot_dividend_bar_chart(
     ].set_visible(False)
     ax.spines[
         "right"
-    ].set_visible(False
+    ].set_visible(False)
     plt.xticks(
         rotation=0
     )

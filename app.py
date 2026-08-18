@@ -20,47 +20,14 @@ warnings.filterwarnings("ignore")
 
 st.set_page_config(
     page_title="台股 V2 強勢突破全自動雷達",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-
-
-# ============================================================
-# Sidebar 寬度調整
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    /* 控制台寬度 */
-    [data-testid="stSidebar"] {
-        min-width: 300px;
-        max-width: 320px;
-    }
-
-    [data-testid="stSidebar"] > div:first-child {
-        width: 320px;
-    }
-
-    /* 主畫面標題不要過度壓縮 */
-    .block-container {
-        padding-top: 1.5rem;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# 標題
-# ============================================================
 
 st.title("📈 台股 V2 全自動選股雷達")
 
 st.caption(
-    "V2 穩定版：全台上市＋上櫃｜股本過濾｜"
+    "V2 加速版：全台上市＋上櫃｜股本過濾｜"
     "已完成交易日｜週20MA｜5日均量放量｜"
     "40日創高 OR W底突破｜產業集中分析"
 )
@@ -916,7 +883,6 @@ def fast_filter_batch(
                 capital_map.get(code)
             )
 
-            # 查不到股本不直接淘汰
             if (
                 capital is not None
                 and capital < min_capital
@@ -1250,7 +1216,7 @@ def analyze_candidate(
         )
 
         # ====================================================
-        # 2. 5日均量
+        # 2. 前5日均量
         # ====================================================
 
         previous_5_volume = (
@@ -1271,6 +1237,7 @@ def analyze_candidate(
 
         if (
             avg_5_volume <= 0
+            or not np.isfinite(avg_5_volume)
         ):
 
             return None
@@ -1410,6 +1377,7 @@ def analyze_candidate(
         # ====================================================
 
         distance_to_week_ma_pct = (
+
             (
                 latest_close
                 - ma_week_val
@@ -1419,7 +1387,7 @@ def analyze_candidate(
         )
 
         # ====================================================
-        # 股本
+        # 股票代號 / 股本
         # ====================================================
 
         code = (
@@ -1640,6 +1608,12 @@ def plot_dividend_bar_chart(
     div_df
 ):
 
+    if (
+        div_df is None
+        or div_df.empty
+    ):
+        return
+
     fig, ax = plt.subplots(
         figsize=(10, 3.5)
     )
@@ -1707,24 +1681,32 @@ def plot_dividend_bar_chart(
 
     plt.tight_layout()
 
-    st.pyplot(fig)
+    st.pyplot(
+        fig,
+        use_container_width=True
+    )
 
     plt.close(fig)
 
 
 # ============================================================
-# K線圖
+# 台股 K線圖
 # ============================================================
 
 def plot_stock_chart(
     ticker,
-    stock_name,
     df_day,
     ma_week_val,
     breakout_days,
     is_breakout,
     w_info
 ):
+
+    if (
+        df_day is None
+        or df_day.empty
+    ):
+        return
 
     plot_df = (
         df_day
@@ -1741,9 +1723,9 @@ def plot_stock_chart(
         )
     )
 
-    # ========================================================
-    # 台股均線
-    # ========================================================
+    # --------------------------------------------------------
+    # 日MA
+    # --------------------------------------------------------
 
     ma20 = (
         plot_df["Close"]
@@ -1757,43 +1739,12 @@ def plot_stock_chart(
         .mean()
     )
 
-    # ========================================================
-    # 台股顏色
-    #
-    # 上漲 = 紅
-    # 下跌 = 綠
-    # ========================================================
-
-    market_colors = mpf.make_marketcolors(
-
-        up="red",
-
-        down="green",
-
-        edge="inherit",
-
-        wick="inherit",
-
-        volume="inherit"
-    )
-
-    chart_style = mpf.make_mpf_style(
-
-        base_mpf_style="yahoo",
-
-        marketcolors=market_colors
-    )
-
-    # ========================================================
-    # 均線
-    # ========================================================
-
     addplots = [
 
         mpf.make_addplot(
             ma20,
-            color="dodgerblue",
-            width=1.3
+            color="blue",
+            width=1.2
         ),
 
         mpf.make_addplot(
@@ -1812,9 +1763,9 @@ def plot_stock_chart(
         )
     ]
 
-    # ========================================================
+    # --------------------------------------------------------
     # W底頸線
-    # ========================================================
+    # --------------------------------------------------------
 
     if w_info.get(
         "is_w_bottom"
@@ -1840,14 +1791,65 @@ def plot_stock_chart(
             )
 
     # ========================================================
-    # 不再把長英文塞進 K 線圖標題
+    # 台股配色
+    #
+    # 上漲 = 紅
+    # 下跌 = 綠
     # ========================================================
 
-    signal_text = []
+    market_colors = mpf.make_marketcolors(
+
+        up="red",
+
+        down="green",
+
+        edge={
+            "up": "red",
+            "down": "green"
+        },
+
+        wick={
+            "up": "red",
+            "down": "green"
+        },
+
+        volume={
+            "up": "red",
+            "down": "green"
+        },
+
+        inherit=False
+    )
+
+    tw_style = mpf.make_mpf_style(
+
+        base_mpf_style="classic",
+
+        marketcolors=market_colors,
+
+        gridstyle="--",
+
+        gridcolor="lightgray",
+
+        facecolor="white",
+
+        edgecolor="black",
+
+        figcolor="white"
+    )
+
+    # ========================================================
+    # 簡短中文標題
+    # ========================================================
+
+    title_parts = [
+        f"{ticker}｜V2 技術圖",
+        f"週MA{20 if ma_week_val else ''}"
+    ]
 
     if is_breakout:
 
-        signal_text.append(
+        title_parts.append(
             f"{breakout_days}日突破"
         )
 
@@ -1855,35 +1857,16 @@ def plot_stock_chart(
         "is_w_bottom"
     ):
 
-        signal_text.append(
+        title_parts.append(
             "W底突破"
         )
 
-    signal_label = (
-        "＋".join(signal_text)
-        if signal_text
-        else "技術型態"
+    chart_title = (
+        "｜".join(title_parts)
     )
 
     # ========================================================
-    # 圖上方簡潔中文標題
-    # ========================================================
-
-    st.markdown(
-        f"""
-**📈 {stock_name}（{ticker.replace('.TW', '').replace('.TWO', '')}）｜{signal_label}**
-
-🔵 20日均線　🟣 100日均線　🔴 週{20}MA　🟠 W底頸線
-
-🔴 紅K＝上漲　🟢 綠K＝下跌
-"""
-    )
-
-    # ========================================================
-    # K線
-    #
-    # 不使用長英文 title
-    # 避免壓縮 K 線
+    # 圖表
     # ========================================================
 
     fig, axes = mpf.plot(
@@ -1892,24 +1875,65 @@ def plot_stock_chart(
 
         type="candle",
 
-        style=chart_style,
+        style=tw_style,
 
         addplot=addplots,
 
-        volume=True,
+        title=chart_title,
 
         ylabel="價格",
 
+        volume=True,
+
         ylabel_lower="成交量",
 
-        figratio=(16, 9),
+        figratio=(16, 8),
 
-        figscale=1.15,
+        figscale=1.0,
+
+        datetime_format="%m/%d",
+
+        xrotation=0,
 
         tight_layout=True,
 
         returnfig=True
     )
+
+    # --------------------------------------------------------
+    # 調整標題與圖表空間
+    # --------------------------------------------------------
+
+    fig.subplots_adjust(
+        top=0.93,
+        bottom=0.08,
+        left=0.06,
+        right=0.98
+    )
+
+    # --------------------------------------------------------
+    # 額外圖例
+    # --------------------------------------------------------
+
+    if len(axes) > 0:
+
+        axes[0].text(
+            0.01,
+            0.98,
+            "紅＝漲　綠＝跌",
+            transform=axes[0].transAxes,
+            fontsize=9,
+            verticalalignment="top",
+            bbox=dict(
+                boxstyle="round,pad=0.25",
+                facecolor="white",
+                alpha=0.8
+            )
+        )
+
+    # ========================================================
+    # Streamlit Responsive 顯示
+    # ========================================================
 
     st.pyplot(
         fig,
@@ -1920,7 +1944,7 @@ def plot_stock_chart(
 
 
 # ============================================================
-# Sidebar
+# Sidebar / 選股控制台
 # ============================================================
 
 st.sidebar.header(
@@ -2092,10 +2116,6 @@ w_max_gap = (
 )
 
 
-# ============================================================
-# 參數
-# ============================================================
-
 params = {
 
     "min_capital":
@@ -2128,7 +2148,7 @@ params = {
 
 
 # ============================================================
-# 條件摘要
+# Sidebar 條件摘要
 # ============================================================
 
 st.sidebar.divider()
@@ -2144,7 +2164,8 @@ st.sidebar.markdown(
 ≥ {MIN_VOLUME_LOTS:,} 張
 
 **放量：**
-今日量 ≥ 前5日均量 × {vol_multiplier:.1f}
+今日量 ≥ 前5日均量 ×
+{vol_multiplier:.1f}
 
 **趨勢：**
 股價 > 週{ma_week}MA
@@ -2153,55 +2174,6 @@ st.sidebar.markdown(
 {breakout_days}日創高 OR W底突破
 """
 )
-
-
-# ============================================================
-# 選股架構說明
-# ============================================================
-
-with st.expander(
-    "📊 查看 V2 選股邏輯",
-    expanded=False
-):
-
-    st.markdown(
-        """
-### V2 強勢突破選股流程
-
-```text
-                 全台上市＋上櫃
-                       │
-                       ▼
-                  【股本過濾】
-                       │
-                       ▼
-                  【基本流動性】
-                       │
-                       ▼
-             【5日均量放量 ≥ X倍】
-                       │
-                       ▼
-                【週20MA多頭】
-                       │
-                       ▼
-             ┌─────────┴─────────┐
-             ▼                   ▼
-        【40日創高】          【W底突破】
-             └─────────┬─────────┘
-                       ▼
-                  【符合即入選】
-                       │
-                       ▼
-               【產業分類統計】
-                       │
-          ┌────────────┴────────────┐
-          ▼                         ▼
-     產業集中排名                 個股排名
-          │                         │
-          ▼                         ▼
-   哪些族群有資金？       哪些股票訊號最強？
-        """
-    )
 
 
 # ============================================================
@@ -2453,7 +2425,7 @@ if st.sidebar.button(
     progress2.progress(1.0)
 
     # ========================================================
-    # 第三階段：股利
+    # 最後才抓股利
     # ========================================================
 
     st.subheader(
@@ -2929,14 +2901,12 @@ if st.sidebar.button(
             # ------------------------------------------------
 
             st.markdown(
-                "#### 📈 台股 K 線"
+                "#### 📈 技術圖"
             )
 
             plot_stock_chart(
 
                 ticker=m["ticker"],
-
-                stock_name=m["name"],
 
                 df_day=m["df_day"],
 

@@ -13,6 +13,26 @@ import os
 
 from datetime import time as dt_time, datetime
 
+# ============================================================
+# PDF
+# ============================================================
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    PageBreak
+)
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
 
 # ============================================================
 # 基本設定
@@ -31,7 +51,7 @@ st.title("📈 台股 V2.2 全自動選股雷達")
 st.caption(
     "V2.2 加速版：全台上市＋上櫃｜股本過濾｜"
     "已完成交易日｜週20MA｜前5日均量放量｜"
-    "40日創高 OR W底突破｜產業集中"
+    "40日創高 OR W底突破｜產業集中｜PDF報告"
 )
 
 

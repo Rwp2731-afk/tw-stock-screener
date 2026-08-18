@@ -4,16 +4,48 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import mplfinance as mpf
-
-plt.rcParams["font.sans-serif"] = ["Noto Sans CJK TC"]
-plt.rcParams["axes.unicode_minus"] = False
-
 import twstock
 import warnings
 import time
 import requests
 
 from datetime import time as dt_time
+
+
+# ============================================================
+# Matplotlib 中文字型設定
+# ============================================================
+
+import matplotlib.font_manager as fm
+
+available_fonts = {
+    f.name
+    for f in fm.fontManager.ttflist
+}
+
+chinese_fonts = [
+    "Microsoft JhengHei",
+    "Microsoft YaHei",
+    "Noto Sans CJK TC",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "PingFang TC",
+    "PingFang SC",
+    "Heiti TC",
+    "Arial Unicode MS"
+]
+
+for font_name in chinese_fonts:
+
+    if font_name in available_fonts:
+
+        plt.rcParams["font.sans-serif"] = [
+            font_name
+        ]
+
+        break
+
+plt.rcParams["axes.unicode_minus"] = False
 
 
 # ============================================================

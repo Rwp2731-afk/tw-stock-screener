@@ -1696,7 +1696,7 @@ def plot_stock_chart(
             )
 
     title_parts = [
-        f"{ticker} - V2 Trend Radar",
+        f"{ticker}",
         f"Weekly MA20 Stop: {ma_week_val:.2f}"
     ]
 

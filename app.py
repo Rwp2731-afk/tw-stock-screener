@@ -8,6 +8,7 @@ import twstock
 import warnings
 import time
 import requests
+import os
 
 from datetime import time as dt_time, datetime
 

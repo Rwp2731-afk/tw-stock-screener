@@ -76,12 +76,8 @@ def get_company_capital_data():
     """
     取得上市＋上櫃公司實收資本額。
 
-    回傳：
-
-        {
-            "2330": 234000000000,
-            ...
-        }
+    股本資料查不到：
+    → 不阻擋股票
     """
 
     capital_map = {}
@@ -828,7 +824,6 @@ def clean_single_stock_data(
         pd.MultiIndex
     ):
 
-        # 嘗試從 ticker 找出該股票
         try:
 
             if ticker in (
@@ -1010,8 +1005,8 @@ def fast_filter_batch(
                 capital_map.get(code)
             )
 
-            # 如果有股本資料，
-            # 才進行股本門檻過濾
+            # 有股本資料才進行門檻過濾
+            # 查不到股本 → 放行
             if (
                 capital is not None
                 and capital < min_capital
@@ -1778,7 +1773,9 @@ def plot_dividend_bar_chart(
 
     ax.spines[
         "right"
-    ].set_visible(False)
+    ].set_visible(False
+
+    )
 
     plt.xticks(
         rotation=0
@@ -2281,12 +2278,37 @@ if st.sidebar.button(
 
         try:
 
+            # =================================================
+            # V2.2 修改：
+            # 不再使用 period="1y"
+            # 明確指定台灣日期範圍
+            # =================================================
+
+            today_tw = (
+                get_taiwan_now().date()
+            )
+
+            start_date = (
+                pd.Timestamp(today_tw)
+                - pd.DateOffset(years=1)
+            ).strftime(
+                "%Y-%m-%d"
+            )
+
+            end_date = (
+                pd.Timestamp(today_tw)
+                + pd.Timedelta(days=1)
+            ).strftime(
+                "%Y-%m-%d"
+            )
+
             batch_df = yf.download(
 
                 batch_tickers,
 
-                period=
-                    DAILY_HISTORY_PERIOD,
+                start=start_date,
+
+                end=end_date,
 
                 interval="1d",
 
@@ -2437,12 +2459,37 @@ if st.sidebar.button(
 
         try:
 
+            # =================================================
+            # V2.2 修改：
+            # 不再使用 period="2y"
+            # 明確指定台灣日期範圍
+            # =================================================
+
+            today_tw = (
+                get_taiwan_now().date()
+            )
+
+            start_date = (
+                pd.Timestamp(today_tw)
+                - pd.DateOffset(years=2)
+            ).strftime(
+                "%Y-%m-%d"
+            )
+
+            end_date = (
+                pd.Timestamp(today_tw)
+                + pd.Timedelta(days=1)
+            ).strftime(
+                "%Y-%m-%d"
+            )
+
             full_batch_df = yf.download(
 
                 batch_tickers,
 
-                period=
-                    FULL_HISTORY_PERIOD,
+                start=start_date,
+
+                end=end_date,
 
                 interval="1d",
 

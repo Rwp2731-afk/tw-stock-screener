@@ -1311,7 +1311,7 @@ def analyze_candidate_from_df(
         # 最新日線
         # ====================================================
 
-                try:
+        try:
             # 執行型態與數據計算
             pass
         except Exception:

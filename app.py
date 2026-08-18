@@ -2758,6 +2758,8 @@ if st.sidebar.button(
 
                 ticker=m["ticker"],
 
+                stock_name=m["name"],
+
                 df_day=m["df_day"],
 
                 ma_week_val=

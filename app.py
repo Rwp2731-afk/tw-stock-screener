@@ -23,31 +23,30 @@ st.set_page_config(
 )
 
 # ============================================================
-# Sidebar 與 主畫面寬度自適應修正
+# Sidebar 與 主畫面寬度自適應修正（終極版）
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* 1. 允許右側主畫面正常伸縮與獨立滾動 */
-    [data-testid="stMain"] {
-        flex: 1 1 0% !important;
+    /* 1. 強制解鎖右側主畫面的高度與滾動條 */
+    section.main {
         overflow-y: auto !important;
+        height: 100vh !important;
     }
 
-    /* 2. 側邊欄彈性寬度（允許伸縮，避免擠壓右邊） */
+    /* 2. 確保右側主容器內容不會被壓縮卡死 */
+    [data-testid="stMainBlockContainer"] {
+        max-width: 95% !important;
+        padding-top: 2rem !important;
+        padding-bottom: 5rem !important;
+    }
+
+    /* 3. 側邊欄彈性寬度（防止側邊欄卡死畫面） */
     [data-testid="stSidebar"] {
-        width: 300px !important;
         min-width: 260px !important;
-        max-width: 350px !important;
-    }
-
-    /* 3. 主畫面邊距調整，防止上方被標題擋住 */
-    .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 3rem !important;
-        max-width: 95% !important; /* 讓大螢幕下渲染更順暢 */
+        max-width: 320px !important;
     }
 
     </style>

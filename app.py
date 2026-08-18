@@ -26,77 +26,89 @@ st.set_page_config(
 
 
 # ============================================================
-# ⭐ 主畫面 / Sidebar 寬度修正
-# ============================================================
+# ⭐ 版面 CSS
 #
 # 目的：
-# 1. 控制台不要無限制變寬
-# 2. 右側主畫面永遠使用剩餘空間
-# 3. 瀏覽器縮放 / 視窗寬度變化時，主畫面跟著調整
-#
-# 不修改任何選股邏輯
+# 1. 主畫面永遠使用剩餘寬度
+# 2. Sidebar 不要被撐得過寬
+# 3. Sidebar 收起後，主畫面自動吃滿
+# 4. 不設定固定的主內容寬度
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* ========================================================
-       Sidebar：固定合理寬度
-       ======================================================== */
+    /* ======================================================
+       整體主畫面
+       ====================================================== */
 
-    section[data-testid="stSidebar"] {
-        width: 320px !important;
-        min-width: 320px !important;
-        max-width: 320px !important;
-    }
-
-    section[data-testid="stSidebar"] > div {
-        width: 320px !important;
+    [data-testid="stAppViewContainer"] {
+        width: 100%;
     }
 
 
-    /* ========================================================
-       主畫面：取消不必要的最大寬度限制
-       ======================================================== */
+    /* ======================================================
+       右側主要內容
+       不限制 max-width，讓它吃滿剩餘空間
+       ====================================================== */
 
-    .stAppViewContainer {
-        width: 100% !important;
+    [data-testid="stAppViewContainer"] section.main {
+        width: 100%;
     }
 
-    [data-testid="stMain"] {
-        width: calc(100% - 320px) !important;
-        max-width: none !important;
-    }
-
-    [data-testid="stMainBlockContainer"] {
+    [data-testid="stAppViewContainer"] .main .block-container {
         max-width: none !important;
         width: 100% !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
+        padding-left: 2rem;
+        padding-right: 2rem;
     }
 
 
-    /* ========================================================
-       Streamlit 主要內容區
-       ======================================================== */
+    /* ======================================================
+       Sidebar
+       維持合理寬度
+       ====================================================== */
 
-    .block-container {
-        max-width: none !important;
-        width: 100% !important;
+    [data-testid="stSidebar"] {
+        min-width: 320px;
+        max-width: 320px;
+    }
+
+    [data-testid="stSidebar"] > div:first-child {
+        width: 320px;
     }
 
 
-    /* ========================================================
-       表格 / 圖表全部使用可用寬度
-       ======================================================== */
+    /* ======================================================
+       DataFrame / 表格
+       ====================================================== */
 
     [data-testid="stDataFrame"] {
         width: 100% !important;
     }
 
-    [data-testid="stPlotlyChart"] {
-        width: 100% !important;
+
+    /* ======================================================
+       小螢幕
+       避免 Sidebar 太寬造成主畫面太窄
+       ====================================================== */
+
+    @media (max-width: 900px) {
+
+        [data-testid="stSidebar"] {
+            min-width: 280px;
+            max-width: 280px;
+        }
+
+        [data-testid="stSidebar"] > div:first-child {
+            width: 280px;
+        }
+
+        [data-testid="stAppViewContainer"] .main .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
     }
 
     </style>
@@ -1880,6 +1892,8 @@ def plot_stock_chart(
     #
     # 上漲 = 紅
     # 下跌 = 綠
+    #
+    # 保留原本正常 K 線設定
     # ========================================================
 
     market_colors = mpf.make_marketcolors(
@@ -1924,7 +1938,9 @@ def plot_stock_chart(
     )
 
     # ========================================================
-    # 簡短中文標題
+    # 標題
+    #
+    # 不使用額外中文字型
     # ========================================================
 
     title_parts = [
@@ -1986,7 +2002,7 @@ def plot_stock_chart(
     )
 
     # --------------------------------------------------------
-    # 調整標題與圖表空間
+    # 調整圖表空間
     # --------------------------------------------------------
 
     fig.subplots_adjust(
@@ -1997,14 +2013,15 @@ def plot_stock_chart(
     )
 
     # ========================================================
-    # ⭐ 已移除：
+    # ⭐ 已刪除：
+    #
     # 「紅＝漲　綠＝跌」
     #
-    # 因為這是基本知識，不再顯示
+    # 這裡不再加入額外文字
     # ========================================================
 
     # ========================================================
-    # Streamlit Responsive 顯示
+    # Responsive 顯示
     # ========================================================
 
     st.pyplot(

@@ -1311,34 +1311,34 @@ def analyze_candidate_from_df(
         # 最新日線
         # ====================================================
 
-        try:
-    # 執行型態與數據計算
-    pass
-except Exception:
-    pass
+                try:
+            # 執行型態與數據計算
+            pass
+        except Exception:
+            pass
 
-latest_close = float(
-    close_day[-1]
-)
+        latest_close = float(
+            close_day[-1]
+        )
 
-latest_volume = float(
-    vol_day[-1]
-)
+        latest_volume = float(
+            vol_day[-1]
+        )
 
-# 🔍 3037 成交量測試
-if ticker == "3037.TW":
-    st.write(
-        "🔍 3037 原始成交量：",
-        latest_volume
-    )
-    st.write(
-        "🔍 3037 成交量（張）：",
-        latest_volume / 1000
-    )
+        # 🔍 3037 成交量測試
+        if ticker == "3037.TW":
+            st.write(
+                "🔍 3037 原始成交量：",
+                latest_volume
+            )
+            st.write(
+                "🔍 3037 成交量（張）：",
+                latest_volume / 1000
+            )
 
-latest_volume_lots = (
-    latest_volume / 1000
-)
+        latest_volume_lots = (
+            latest_volume / 1000
+        )
 
         
         # ====================================================

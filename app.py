@@ -1736,7 +1736,7 @@ def plot_stock_chart(
             title_parts
         ),
 
-        ylabel="Price (TWD)",
+        ylabel="股價（元）",
 
         volume=True,
 

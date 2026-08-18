@@ -17,7 +17,6 @@ from datetime import time as dt_time, datetime
 # PDF
 # ============================================================
 
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER

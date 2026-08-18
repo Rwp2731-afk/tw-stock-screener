@@ -23,29 +23,12 @@ available_fonts = {
     for f in fm.fontManager.ttflist
 }
 
-chinese_fonts = [
-    "Microsoft JhengHei",
-    "Microsoft YaHei",
-    "Noto Sans CJK TC",
-    "Noto Sans CJK SC",
-    "Noto Sans CJK JP",
-    "PingFang TC",
-    "PingFang SC",
-    "Heiti TC",
-    "Arial Unicode MS"
-]
-
-for font_name in chinese_fonts:
-
-    if font_name in available_fonts:
-
-        plt.rcParams["font.sans-serif"] = [
-            font_name
-        ]
-
-        break
-
-plt.rcParams["axes.unicode_minus"] = False
+st.write("目前可用字型：")
+st.write(
+    sorted(
+        available_fonts
+    )
+)
 
 
 # ============================================================

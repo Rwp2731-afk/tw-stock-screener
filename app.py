@@ -4,6 +4,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import mplfinance as mpf
+
+plt.rcParams["font.sans-serif"] = ["Noto Sans CJK TC"]
+plt.rcParams["axes.unicode_minus"] = False
+
 import twstock
 import warnings
 import time

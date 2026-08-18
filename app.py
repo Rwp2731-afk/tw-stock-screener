@@ -8,9 +8,8 @@ import twstock
 import warnings
 import time
 import requests
-import os
 
-from datetime import time as dt_time, datetime
+from datetime import time as dt_time
 
 
 # ============================================================
@@ -28,7 +27,7 @@ st.set_page_config(
 st.title("📈 台股 V2.2 全自動選股雷達")
 
 st.caption(
-    "V2.2 加速版：全台上市＋上櫃｜股本過濾｜"
+    "V2.2：全台上市＋上櫃｜官方最新收盤資料｜股本過濾｜"
     "已完成交易日｜週20MA｜前5日均量放量｜"
     "40日創高 OR W底突破｜產業集中"
 )
@@ -42,25 +41,34 @@ TW_TZ = "Asia/Taipei"
 
 MIN_VOLUME_LOTS = 1000
 
-# 第一階段只需要近期資料
 DAILY_HISTORY_PERIOD = "1y"
 
-# 第二階段完整技術分析
 FULL_HISTORY_PERIOD = "2y"
 
 CHART_DAYS = 250
 
-# 批次下載大小
 BATCH_SIZE = 80
 
-# API timeout
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 20
 
-# 第一階段最低資料量
 MIN_DAILY_ROWS = 80
 
-# 第二階段最低資料量
 MIN_FULL_ROWS = 120
+
+
+# ============================================================
+# 官方資料 API
+# ============================================================
+
+TWSE_STOCK_DAY_ALL_URL = (
+    "https://openapi.twse.com.tw/v1/"
+    "exchangeReport/STOCK_DAY_ALL"
+)
+
+TPEX_MAINBOARD_QUOTES_URL = (
+    "https://www.tpex.org.tw/openapi/v1/"
+    "tpex_mainboard_quotes"
+)
 
 
 # ============================================================
@@ -72,13 +80,6 @@ MIN_FULL_ROWS = 120
     show_spinner=False
 )
 def get_company_capital_data():
-
-    """
-    取得上市＋上櫃公司實收資本額。
-
-    股本資料查不到：
-    → 不阻擋股票
-    """
 
     capital_map = {}
 
@@ -119,14 +120,12 @@ def get_company_capital_data():
                         "公司代號" in col_str
                         or col_str == "Code"
                     ):
-
                         code_col = col
 
                     if (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
                     ):
-
                         capital_col = col
 
                 if (
@@ -152,14 +151,14 @@ def get_company_capital_data():
 
                             if capital > 0:
 
-                                capital_map[
-                                    code
-                                ] = capital
+                                capital_map[code] = capital
 
                         except Exception:
+
                             pass
 
     except Exception:
+
         pass
 
 
@@ -200,14 +199,12 @@ def get_company_capital_data():
                         "公司代號" in col_str
                         or col_str == "SecuritiesCompanyCode"
                     ):
-
                         code_col = col
 
                     if (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
                     ):
-
                         capital_col = col
 
                 if (
@@ -233,18 +230,511 @@ def get_company_capital_data():
 
                             if capital > 0:
 
-                                capital_map[
-                                    code
-                                ] = capital
+                                capital_map[code] = capital
 
                         except Exception:
+
                             pass
 
     except Exception:
+
         pass
 
 
     return capital_map
+
+
+# ============================================================
+# 取得台灣時間
+# ============================================================
+
+def get_taiwan_now():
+
+    return pd.Timestamp.now(
+        tz=TW_TZ
+    )
+
+
+def is_market_closed_for_today():
+
+    now = get_taiwan_now()
+
+    if now.weekday() >= 5:
+
+        return True
+
+    market_close = dt_time(
+        13,
+        30
+    )
+
+    return (
+        now.time()
+        >= market_close
+    )
+
+
+# ============================================================
+# 民國日期 → 西元日期
+# ============================================================
+
+def roc_date_to_timestamp(value):
+
+    try:
+
+        text = str(value).strip()
+
+        if len(text) != 7:
+
+            return pd.NaT
+
+        year = int(text[:3]) + 1911
+
+        month = int(text[3:5])
+
+        day = int(text[5:7])
+
+        return pd.Timestamp(
+            year=year,
+            month=month,
+            day=day
+        )
+
+    except Exception:
+
+        return pd.NaT
+
+
+# ============================================================
+# 官方最新行情
+#
+# 這是本次 V2.2 最重要的修改
+#
+# Yahoo：
+#     負責歷史資料與技術分析
+#
+# TWSE / TPEx：
+#     負責最新交易日收盤價＋成交量
+#
+# ============================================================
+
+@st.cache_data(
+    ttl=1800,
+    show_spinner=False
+)
+def get_official_latest_quotes():
+
+    quotes = {}
+
+    latest_dates = []
+
+    # ========================================================
+    # TWSE 上市
+    # ========================================================
+
+    try:
+
+        response = requests.get(
+            TWSE_STOCK_DAY_ALL_URL,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if isinstance(data, list):
+
+            for row in data:
+
+                code = str(
+                    row.get("Code", "")
+                ).strip()
+
+                if not code:
+
+                    continue
+
+                date_value = (
+                    roc_date_to_timestamp(
+                        row.get("Date")
+                    )
+                )
+
+                if pd.isna(date_value):
+
+                    continue
+
+                try:
+
+                    open_price = float(
+                        str(
+                            row.get(
+                                "OpeningPrice",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    high_price = float(
+                        str(
+                            row.get(
+                                "HighestPrice",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    low_price = float(
+                        str(
+                            row.get(
+                                "LowestPrice",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    close_price = float(
+                        str(
+                            row.get(
+                                "ClosingPrice",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    volume_shares = float(
+                        str(
+                            row.get(
+                                "TradeVolume",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    if close_price <= 0:
+
+                        continue
+
+                    quotes[
+                        code + ".TW"
+                    ] = {
+
+                        "date":
+                            date_value,
+
+                        "Open":
+                            open_price,
+
+                        "High":
+                            high_price,
+
+                        "Low":
+                            low_price,
+
+                        "Close":
+                            close_price,
+
+                        "Volume":
+                            volume_shares
+                    }
+
+                    latest_dates.append(
+                        date_value
+                    )
+
+                except Exception:
+
+                    continue
+
+    except Exception:
+
+        pass
+
+
+    # ========================================================
+    # TPEx 上櫃
+    # ========================================================
+
+    try:
+
+        response = requests.get(
+            TPEX_MAINBOARD_QUOTES_URL,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if isinstance(data, list):
+
+            for row in data:
+
+                code = str(
+                    row.get(
+                        "SecuritiesCompanyCode",
+                        ""
+                    )
+                ).strip()
+
+                if not code:
+
+                    continue
+
+                try:
+
+                    open_price = float(
+                        str(
+                            row.get(
+                                "Open",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    high_price = float(
+                        str(
+                            row.get(
+                                "High",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    low_price = float(
+                        str(
+                            row.get(
+                                "Low",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    close_price = float(
+                        str(
+                            row.get(
+                                "Close",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    volume_shares = float(
+                        str(
+                            row.get(
+                                "TradingShares",
+                                "0"
+                            )
+                        ).replace(",", "")
+                    )
+
+                    if close_price <= 0:
+
+                        continue
+
+                    quotes[
+                        code + ".TWO"
+                    ] = {
+
+                        "date":
+                            pd.NaT,
+
+                        "Open":
+                            open_price,
+
+                        "High":
+                            high_price,
+
+                        "Low":
+                            low_price,
+
+                        "Close":
+                            close_price,
+
+                        "Volume":
+                            volume_shares
+                    }
+
+                except Exception:
+
+                    continue
+
+    except Exception:
+
+        pass
+
+
+    # ========================================================
+    # 上櫃 API 若沒有日期欄位
+    #
+    # 使用上市 API 最新日期作為當日市場日期。
+    # 正常交易日兩市場同步。
+    # ========================================================
+
+    latest_market_date = pd.NaT
+
+    if latest_dates:
+
+        latest_market_date = max(
+            latest_dates
+        )
+
+    for ticker in quotes:
+
+        if pd.isna(
+            quotes[ticker]["date"]
+        ):
+
+            quotes[ticker]["date"] = (
+                latest_market_date
+            )
+
+    return quotes
+
+
+# ============================================================
+# 把官方最新資料覆蓋到 Yahoo DataFrame
+# ============================================================
+
+def apply_official_latest_quote(
+    df,
+    ticker,
+    official_quotes
+):
+
+    if (
+        df is None
+        or df.empty
+        or ticker not in official_quotes
+    ):
+
+        return df
+
+    quote = official_quotes[ticker]
+
+    official_date = pd.Timestamp(
+        quote["date"]
+    )
+
+    if pd.isna(official_date):
+
+        return df
+
+    df = df.copy()
+
+    df.index = pd.to_datetime(
+        df.index
+    )
+
+    # 去除 timezone
+    try:
+
+        if getattr(
+            df.index,
+            "tz",
+            None
+        ) is not None:
+
+            df.index = (
+                df.index
+                .tz_localize(None)
+            )
+
+    except Exception:
+
+        pass
+
+    official_date = (
+        official_date
+        .tz_localize(None)
+        if official_date.tzinfo
+        else official_date
+    )
+
+    official_date = (
+        official_date
+        .normalize()
+    )
+
+    # ========================================================
+    # 如果 Yahoo 已經有該日期
+    # 直接覆蓋
+    # ========================================================
+
+    if official_date in df.index:
+
+        df.loc[
+            official_date,
+            "Open"
+        ] = quote["Open"]
+
+        df.loc[
+            official_date,
+            "High"
+        ] = quote["High"]
+
+        df.loc[
+            official_date,
+            "Low"
+        ] = quote["Low"]
+
+        df.loc[
+            official_date,
+            "Close"
+        ] = quote["Close"]
+
+        df.loc[
+            official_date,
+            "Volume"
+        ] = quote["Volume"]
+
+    else:
+
+        # ====================================================
+        # Yahoo 沒有最新日期
+        # 直接補上一根官方日K
+        # ====================================================
+
+        new_row = pd.DataFrame(
+            {
+                "Open":
+                    [quote["Open"]],
+
+                "High":
+                    [quote["High"]],
+
+                "Low":
+                    [quote["Low"]],
+
+                "Close":
+                    [quote["Close"]],
+
+                "Volume":
+                    [quote["Volume"]]
+            },
+            index=[
+                official_date
+            ]
+        )
+
+        df = pd.concat(
+            [
+                df,
+                new_row
+            ]
+        )
+
+    df = (
+        df[
+            ~df.index.duplicated(
+                keep="last"
+            )
+        ]
+        .sort_index()
+    )
+
+    return df
 
 
 # ============================================================
@@ -292,36 +782,6 @@ def flatten_yfinance_columns(df):
 
 
 # ============================================================
-# 台灣時間
-# ============================================================
-
-def get_taiwan_now():
-
-    return pd.Timestamp.now(
-        tz=TW_TZ
-    )
-
-
-def is_market_closed_for_today():
-
-    now = get_taiwan_now()
-
-    if now.weekday() >= 5:
-
-        return True
-
-    market_close = dt_time(
-        13,
-        30
-    )
-
-    return (
-        now.time()
-        >= market_close
-    )
-
-
-# ============================================================
 # 只保留已完成交易日
 # ============================================================
 
@@ -342,6 +802,32 @@ def prepare_completed_daily_data(
         df_day.index
     )
 
+    try:
+
+        if getattr(
+            df_day.index,
+            "tz",
+            None
+        ) is not None:
+
+            df_day.index = (
+                df_day.index
+                .tz_localize(None)
+            )
+
+    except Exception:
+
+        pass
+
+    df_day = (
+        df_day[
+            ~df_day.index.duplicated(
+                keep="last"
+            )
+        ]
+        .sort_index()
+    )
+
     now = get_taiwan_now()
 
     today = now.date()
@@ -349,6 +835,14 @@ def prepare_completed_daily_data(
     last_date = (
         df_day.index[-1].date()
     )
+
+    # ========================================================
+    # 只有真的在盤中，而且資料日期是今天，
+    # 才刪掉今天。
+    #
+    # 盤後 13:30 之後：
+    # 保留今天官方收盤資料。
+    # ========================================================
 
     if (
         last_date == today
@@ -422,12 +916,17 @@ def build_completed_weekly_data(
 
     now = get_taiwan_now()
 
+    # ========================================================
+    # 盤中才排除本週未完成週K
+    # ========================================================
+
     if now.weekday() < 5:
 
         if (
             not weekly.empty
             and weekly.index[-1].date()
             >= now.date()
+            and not is_market_closed_for_today()
         ):
 
             weekly = (
@@ -815,10 +1314,6 @@ def clean_single_stock_data(
 
     df = df.copy()
 
-    # --------------------------------------------------------
-    # MultiIndex
-    # --------------------------------------------------------
-
     if isinstance(
         df.columns,
         pd.MultiIndex
@@ -894,13 +1389,14 @@ def clean_single_stock_data(
 
 
 # ============================================================
-# 第一層快速篩選
+# 第一階段快速篩選
 # ============================================================
 
 def fast_filter_batch(
     batch_df,
     stocks_info,
     capital_map,
+    official_quotes,
     min_capital,
     vol_multiplier,
     breakout_days
@@ -1005,7 +1501,6 @@ def fast_filter_batch(
                 capital_map.get(code)
             )
 
-            # 有股本資料才進行門檻過濾
             # 查不到股本 → 放行
             if (
                 capital is not None
@@ -1015,7 +1510,62 @@ def fast_filter_batch(
                 continue
 
             # ------------------------------------------------
-            # 移除尚未完成的今天
+            # 組成單股 DF
+            # ------------------------------------------------
+
+            temp_df = pd.DataFrame({
+
+                "Open":
+                    np.nan,
+
+                "High":
+                    high_series,
+
+                "Low":
+                    np.nan,
+
+                "Close":
+                    close_series,
+
+                "Volume":
+                    volume_series
+            })
+
+            # ------------------------------------------------
+            # 官方最新資料覆蓋
+            # ------------------------------------------------
+
+            temp_df = (
+                apply_official_latest_quote(
+                    temp_df,
+                    ticker,
+                    official_quotes
+                )
+            )
+
+            close_series = (
+                temp_df["Close"]
+                .dropna()
+            )
+
+            high_series = (
+                temp_df["High"]
+                .dropna()
+            )
+
+            volume_series = (
+                temp_df["Volume"]
+                .dropna()
+            )
+
+            if len(
+                close_series
+            ) < MIN_DAILY_ROWS:
+
+                continue
+
+            # ------------------------------------------------
+            # 已完成交易日
             # ------------------------------------------------
 
             last_date = (
@@ -1055,7 +1605,7 @@ def fast_filter_batch(
             )
 
             # ------------------------------------------------
-            # 成交量
+            # 最新成交量
             # ------------------------------------------------
 
             latest_volume = float(
@@ -1194,15 +1744,17 @@ def fast_filter_batch(
 def analyze_candidate_from_df(
     candidate,
     df_day,
+    ticker,
     stocks_info,
-    params
+    params,
+    official_quotes
 ):
 
-    ticker = (
-        candidate["ticker"]
-    )
-
     try:
+
+        # ----------------------------------------------------
+        # 先從批次資料取出單股
+        # ----------------------------------------------------
 
         df_day = clean_single_stock_data(
             df_day,
@@ -1212,6 +1764,22 @@ def analyze_candidate_from_df(
         if df_day.empty:
 
             return None
+
+        # ----------------------------------------------------
+        # 官方最新日K覆蓋
+        # ----------------------------------------------------
+
+        df_day = (
+            apply_official_latest_quote(
+                df_day,
+                ticker,
+                official_quotes
+            )
+        )
+
+        # ----------------------------------------------------
+        # 只保留已完成交易日
+        # ----------------------------------------------------
 
         df_day = (
             prepare_completed_daily_data(
@@ -1226,6 +1794,10 @@ def analyze_candidate_from_df(
         if len(df_day) < MIN_FULL_ROWS:
 
             return None
+
+        # ----------------------------------------------------
+        # 週K
+        # ----------------------------------------------------
 
         df_week = (
             build_completed_weekly_data(
@@ -1605,7 +2177,7 @@ def analyze_candidate_from_df(
 
 
 # ============================================================
-# 最後才抓股利
+# 股利
 # ============================================================
 
 @st.cache_data(
@@ -1773,9 +2345,7 @@ def plot_dividend_bar_chart(
 
     ax.spines[
         "right"
-    ].set_visible(False
-
-    )
+    ].set_visible(False)
 
     plt.xticks(
         rotation=0
@@ -1906,12 +2476,15 @@ def plot_stock_chart(
 
         style=mpf.make_mpf_style(
             base_mpf_style="yahoo",
-            marketcolors=mpf.make_marketcolors(
-                up="red",
-                down="green",
-                edge="inherit",
-                wick="inherit",
-                volume="inherit"
+
+            marketcolors=(
+                mpf.make_marketcolors(
+                    up="red",
+                    down="green",
+                    edge="inherit",
+                    wick="inherit",
+                    volume="inherit"
+                )
             )
         ),
 
@@ -2178,6 +2751,9 @@ st.sidebar.markdown(
 
 **掃描範圍：**
 全台上市＋上櫃
+
+**最新行情：**
+TWSE / TPEx 官方資料
 """
 )
 
@@ -2215,6 +2791,52 @@ if st.sidebar.button(
     )
 
     # ========================================================
+    # 官方最新行情
+    # ========================================================
+
+    with st.spinner(
+        "正在取得 TWSE / TPEx 最新官方行情..."
+    ):
+
+        official_quotes = (
+            get_official_latest_quotes()
+        )
+
+    official_dates = [
+
+        q["date"]
+
+        for q in official_quotes.values()
+
+        if not pd.isna(q["date"])
+    ]
+
+    if official_dates:
+
+        official_latest_date = max(
+            official_dates
+        )
+
+        st.success(
+            (
+                "官方最新行情日期："
+                f"{official_latest_date.strftime('%Y-%m-%d')}"
+                f"｜取得 {len(official_quotes)} 支"
+            )
+        )
+
+    else:
+
+        official_latest_date = pd.NaT
+
+        st.warning(
+            (
+                "⚠️ 官方最新行情暫時無法取得，"
+                "本次將退回使用 Yahoo 資料。"
+            )
+        )
+
+    # ========================================================
     # 股本
     # ========================================================
 
@@ -2232,7 +2854,7 @@ if st.sidebar.button(
     )
 
     # ========================================================
-    # 第一階段：批量下載
+    # 第一階段
     # ========================================================
 
     st.subheader(
@@ -2278,37 +2900,12 @@ if st.sidebar.button(
 
         try:
 
-            # =================================================
-            # V2.2 修改：
-            # 不再使用 period="1y"
-            # 明確指定台灣日期範圍
-            # =================================================
-
-            today_tw = (
-                get_taiwan_now().date()
-            )
-
-            start_date = (
-                pd.Timestamp(today_tw)
-                - pd.DateOffset(years=1)
-            ).strftime(
-                "%Y-%m-%d"
-            )
-
-            end_date = (
-                pd.Timestamp(today_tw)
-                + pd.Timedelta(days=1)
-            ).strftime(
-                "%Y-%m-%d"
-            )
-
             batch_df = yf.download(
 
                 batch_tickers,
 
-                start=start_date,
-
-                end=end_date,
+                period=
+                    DAILY_HISTORY_PERIOD,
 
                 interval="1d",
 
@@ -2318,19 +2915,30 @@ if st.sidebar.button(
 
                 group_by="column",
 
-                threads=True
+                threads=True,
+
+                timeout=REQUEST_TIMEOUT,
+
+                repair=True
             )
 
             candidates, errors = (
                 fast_filter_batch(
 
-                    batch_df=batch_df,
+                    batch_df=
+                        batch_df,
 
-                    stocks_info=stocks_info,
+                    stocks_info=
+                        stocks_info,
 
-                    capital_map=capital_map,
+                    capital_map=
+                        capital_map,
 
-                    min_capital=min_capital,
+                    official_quotes=
+                        official_quotes,
+
+                    min_capital=
+                        min_capital,
 
                     vol_multiplier=
                         vol_multiplier,
@@ -2378,10 +2986,6 @@ if st.sidebar.button(
 
     progress.progress(1.0)
 
-    # ========================================================
-    # 第一層結果
-    # ========================================================
-
     st.success(
         (
             f"第一階段完成："
@@ -2407,7 +3011,7 @@ if st.sidebar.button(
         st.stop()
 
     # ========================================================
-    # 第二階段：批量取得完整2年資料
+    # 第二階段
     # ========================================================
 
     st.subheader(
@@ -2459,37 +3063,12 @@ if st.sidebar.button(
 
         try:
 
-            # =================================================
-            # V2.2 修改：
-            # 不再使用 period="2y"
-            # 明確指定台灣日期範圍
-            # =================================================
-
-            today_tw = (
-                get_taiwan_now().date()
-            )
-
-            start_date = (
-                pd.Timestamp(today_tw)
-                - pd.DateOffset(years=2)
-            ).strftime(
-                "%Y-%m-%d"
-            )
-
-            end_date = (
-                pd.Timestamp(today_tw)
-                + pd.Timedelta(days=1)
-            ).strftime(
-                "%Y-%m-%d"
-            )
-
             full_batch_df = yf.download(
 
                 batch_tickers,
 
-                start=start_date,
-
-                end=end_date,
+                period=
+                    FULL_HISTORY_PERIOD,
 
                 interval="1d",
 
@@ -2499,7 +3078,11 @@ if st.sidebar.button(
 
                 group_by="column",
 
-                threads=True
+                threads=True,
+
+                timeout=REQUEST_TIMEOUT,
+
+                repair=True
             )
 
             for ticker in batch_tickers:
@@ -2519,11 +3102,17 @@ if st.sidebar.button(
                             df_day=
                                 full_batch_df,
 
+                            ticker=
+                                ticker,
+
                             stocks_info=
                                 stocks_info,
 
                             params=
-                                params
+                                params,
+
+                            official_quotes=
+                                official_quotes
                         )
                     )
 
@@ -3147,6 +3736,8 @@ if st.sidebar.button(
     st.caption(
         (
             "V2.2 完成："
+            "Yahoo 歷史技術資料＋"
+            "TWSE / TPEx 官方最新收盤行情｜"
             "全台上市＋上櫃批次掃描｜"
             "第二階段批次完整分析｜"
             "產業集中｜"

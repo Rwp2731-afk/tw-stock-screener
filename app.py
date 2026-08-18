@@ -1907,16 +1907,7 @@ def plot_stock_chart(
 
         type="candle",
 
-        style=mpf.make_mpf_style(
-    base_mpf_style="yahoo",
-    marketcolors=mpf.make_marketcolors(
-        up="red",
-        down="green",
-        edge="inherit",
-        wick="inherit",
-        volume="inherit"
-    )
-),
+        style="yahoo",
 
         addplot=addplots,
 

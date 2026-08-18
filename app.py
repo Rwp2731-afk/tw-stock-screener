@@ -1614,7 +1614,6 @@ def plot_dividend_bar_chart(
 
 def plot_stock_chart(
     ticker,
-    stock_name,
     df_day,
     ma_week_val,
     breakout_days,
@@ -1697,23 +1696,23 @@ def plot_stock_chart(
             )
 
     title_parts = [
-    f"{stock_name}（{ticker.split('.')[0]}）",
-    f"週20MA：{ma_week_val:.2f}"
-]
+        f"{ticker} - V2 Trend Radar",
+        f"Weekly MA20 Stop: {ma_week_val:.2f}"
+    ]
 
-if is_breakout:
+    if is_breakout:
 
-    title_parts.append(
-        f"{breakout_days}日創高 ✅"
-    )
+        title_parts.append(
+            f"{breakout_days}D Breakout"
+        )
 
-if w_info.get(
-    "is_w_bottom"
-):
+    if w_info.get(
+        "is_w_bottom"
+    ):
 
-    title_parts.append(
-        "W底突破 ✅"
-    )
+        title_parts.append(
+            "W-Bottom"
+        )
 
     # ========================================================
     # ★ K線圖本體
@@ -2757,8 +2756,6 @@ if st.sidebar.button(
             plot_stock_chart(
 
                 ticker=m["ticker"],
-
-                stock_name=m["name"],
 
                 df_day=m["df_day"],
 

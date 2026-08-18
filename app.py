@@ -2557,8 +2557,8 @@ if st.sidebar.button(
             # 第二排
             # ------------------------------------------------
 
-            c1, c2, c3, c4 = (
-                st.columns(4)
+            c1, c2, c3 = (
+                st.columns(3)
             )
 
             with c1:
@@ -2580,13 +2580,6 @@ if st.sidebar.button(
                 st.metric(
                     "放量倍數",
                     f"{m['volume_ratio']:.2f}x"
-                )
-
-            with c4:
-
-                st.metric(
-                    "訊號",
-                    m["signal_type"]
                 )
 
 

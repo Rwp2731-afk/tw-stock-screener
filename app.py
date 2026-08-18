@@ -2308,7 +2308,7 @@ if st.sidebar.button(
 
                 interval="1d",
 
-                auto_adjust=True,
+                auto_adjust=False,
 
                 progress=False,
 
@@ -2464,7 +2464,7 @@ if st.sidebar.button(
 
                 interval="1d",
 
-                auto_adjust=True,
+                auto_adjust=False,
 
                 progress=False,
 

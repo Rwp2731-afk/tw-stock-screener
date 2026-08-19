@@ -20,15 +20,15 @@ from datetime import time as dt_time, datetime
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
-    page_title="台股 V2.2.1 強勢突破全自動雷達",
+    page_title="台股 V2.2.2 強勢突破全自動雷達",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("📈 台股 V2.2.1 全自動選股雷達")
+st.title("📈 台股 V2.2.2 全自動選股雷達")
 
 st.caption(
-    "V2.2.1 資料同步修正版：全台上市＋上櫃｜股本過濾｜"
+    "V2.2.2 成交量同步修正版：全台上市＋上櫃｜股本過濾｜"
     "Yahoo歷史資料＋TWSE/TPEX官方最新行情｜"
     "已完成交易日｜週20MA｜前5日均量放量｜"
     "40日創高 OR W底突破｜產業集中"
@@ -40,27 +40,13 @@ st.caption(
 # ============================================================
 
 TW_TZ = "Asia/Taipei"
-
 MIN_VOLUME_LOTS = 1000
-
-# 第一階段只需要近期資料
 DAILY_HISTORY_PERIOD = "1y"
-
-# 第二階段完整技術分析
 FULL_HISTORY_PERIOD = "2y"
-
 CHART_DAYS = 250
-
-# 批次下載大小
 BATCH_SIZE = 80
-
-# API timeout
 REQUEST_TIMEOUT = 15
-
-# 第一階段最低資料量
 MIN_DAILY_ROWS = 80
-
-# 第二階段最低資料量
 MIN_FULL_ROWS = 120
 
 
@@ -92,31 +78,12 @@ OFFICIAL_HEADERS = {
 # Streamlit Cache
 # ============================================================
 
-@st.cache_data(
-    ttl=86400,
-    show_spinner=False
-)
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_company_capital_data():
-
-    """
-    取得上市＋上櫃公司實收資本額。
-
-    回傳：
-
-        {
-            "2330": 234000000000,
-            ...
-        }
-    """
 
     capital_map = {}
 
-    # ========================================================
-    # 上市
-    # ========================================================
-
     try:
-
         url_twse = (
             "https://openapi.twse.com.tw/v1/"
             "opendata/t187ap03_L"
@@ -129,76 +96,51 @@ def get_company_capital_data():
         )
 
         response.raise_for_status()
-
         data = response.json()
 
         if isinstance(data, list):
-
             df = pd.DataFrame(data)
 
             if not df.empty:
-
                 code_col = None
                 capital_col = None
 
                 for col in df.columns:
-
                     col_str = str(col)
 
                     if (
                         "公司代號" in col_str
                         or col_str == "Code"
                     ):
-
                         code_col = col
 
                     if (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
                     ):
-
                         capital_col = col
 
-                if (
-                    code_col is not None
-                    and capital_col is not None
-                ):
-
+                if code_col is not None and capital_col is not None:
                     for _, row in df.iterrows():
-
-                        code = str(
-                            row[code_col]
-                        ).strip()
-
-                        capital_raw = str(
-                            row[capital_col]
-                        ).replace(",", "").strip()
+                        code = str(row[code_col]).strip()
+                        capital_raw = (
+                            str(row[capital_col])
+                            .replace(",", "")
+                            .strip()
+                        )
 
                         try:
-
-                            capital = float(
-                                capital_raw
-                            )
+                            capital = float(capital_raw)
 
                             if capital > 0:
-
-                                capital_map[
-                                    code
-                                ] = capital
-
+                                capital_map[code] = capital
                         except Exception:
                             pass
 
     except Exception:
         pass
 
-
-    # ========================================================
-    # 上櫃
-    # ========================================================
-
     try:
-
         url_tpex = (
             "https://www.tpex.org.tw/openapi/v1/"
             "mopsfin_t187ap03_O"
@@ -211,63 +153,44 @@ def get_company_capital_data():
         )
 
         response.raise_for_status()
-
         data = response.json()
 
         if isinstance(data, list):
-
             df = pd.DataFrame(data)
 
             if not df.empty:
-
                 code_col = None
                 capital_col = None
 
                 for col in df.columns:
-
                     col_str = str(col)
 
                     if (
                         "公司代號" in col_str
                         or col_str == "SecuritiesCompanyCode"
                     ):
-
                         code_col = col
 
                     if (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
                     ):
-
                         capital_col = col
 
-                if (
-                    code_col is not None
-                    and capital_col is not None
-                ):
-
+                if code_col is not None and capital_col is not None:
                     for _, row in df.iterrows():
-
-                        code = str(
-                            row[code_col]
-                        ).strip()
-
-                        capital_raw = str(
-                            row[capital_col]
-                        ).replace(",", "").strip()
+                        code = str(row[code_col]).strip()
+                        capital_raw = (
+                            str(row[capital_col])
+                            .replace(",", "")
+                            .strip()
+                        )
 
                         try:
-
-                            capital = float(
-                                capital_raw
-                            )
+                            capital = float(capital_raw)
 
                             if capital > 0:
-
-                                capital_map[
-                                    code
-                                ] = capital
-
+                                capital_map[code] = capital
                         except Exception:
                             pass
 
@@ -282,194 +205,83 @@ def get_company_capital_data():
 # ============================================================
 
 def get_taiwan_now():
-
-    return pd.Timestamp.now(
-        tz=TW_TZ
-    )
+    return pd.Timestamp.now(tz=TW_TZ)
 
 
 def is_market_closed_for_today():
 
-    """
-    台股現貨市場 13:30 收盤。
-
-    注意：
-    這裡只代表市場收盤，
-    不代表 TWSE / TPEX OpenAPI 已經完成資料洗寫。
-
-    V2.2.1 最終是否採用今日資料，
-    會再透過官方行情 API 實際日期判斷。
-    """
-
     now = get_taiwan_now()
 
     if now.weekday() >= 5:
-
         return True
 
-    market_close = dt_time(
-        13,
-        30
-    )
+    market_close = dt_time(13, 30)
 
-    return (
-        now.time()
-        >= market_close
-    )
+    return now.time() >= market_close
 
 
 # ============================================================
 # 官方日期解析
 # ============================================================
 
-def parse_official_date(
-    date_raw
-):
+def parse_official_date(date_raw):
 
-    """
-    將 TWSE / TPEX API 日期轉成 pandas Timestamp。
-
-    支援：
-        1150818
-        20260818
-        2026-08-18
-        2026/08/18
-        115/08/18
-        等格式
-    """
-
-    if (
-        date_raw is None
-        or pd.isna(date_raw)
-    ):
-
+    if date_raw is None or pd.isna(date_raw):
         return pd.NaT
 
-    text = str(
-        date_raw
-    ).strip()
+    text = str(date_raw).strip()
 
     if not text:
-
         return pd.NaT
-
-    # --------------------------------------------------------
-    # 純數字
-    # --------------------------------------------------------
 
     if text.isdigit():
 
-        # 民國年月日，例如 1150818
         if len(text) == 7:
-
             try:
+                year = int(text[:3]) + 1911
+                month = int(text[3:5])
+                day = int(text[5:7])
 
-                year = (
-                    int(text[:3])
-                    + 1911
-                )
-
-                month = int(
-                    text[3:5]
-                )
-
-                day = int(
-                    text[5:7]
-                )
-
-                return pd.Timestamp(
-                    year,
-                    month,
-                    day
-                )
-
+                return pd.Timestamp(year, month, day)
             except Exception:
                 pass
 
-        # 西元年月日，例如 20260818
         if len(text) == 8:
-
             try:
+                year = int(text[:4])
+                month = int(text[4:6])
+                day = int(text[6:8])
 
-                year = int(
-                    text[:4]
-                )
-
-                month = int(
-                    text[4:6]
-                )
-
-                day = int(
-                    text[6:8]
-                )
-
-                return pd.Timestamp(
-                    year,
-                    month,
-                    day
-                )
-
+                return pd.Timestamp(year, month, day)
             except Exception:
                 pass
-
-    # --------------------------------------------------------
-    # 民國格式，例如 115/08/18
-    # --------------------------------------------------------
 
     if "/" in text:
 
         parts = text.split("/")
 
         if len(parts) == 3:
-
             try:
-
-                year = int(
-                    parts[0]
-                )
-
-                month = int(
-                    parts[1]
-                )
-
-                day = int(
-                    parts[2]
-                )
+                year = int(parts[0])
+                month = int(parts[1])
+                day = int(parts[2])
 
                 if year < 1911:
-
                     year += 1911
 
-                return pd.Timestamp(
-                    year,
-                    month,
-                    day
-                )
-
+                return pd.Timestamp(year, month, day)
             except Exception:
                 pass
 
-    # --------------------------------------------------------
-    # 一般 pandas 日期
-    # --------------------------------------------------------
-
     try:
-
-        result = pd.to_datetime(
-            text,
-            errors="coerce"
-        )
+        result = pd.to_datetime(text, errors="coerce")
 
         if pd.isna(result):
-
             return pd.NaT
 
-        return pd.Timestamp(
-            result
-        ).normalize()
+        return pd.Timestamp(result).normalize()
 
     except Exception:
-
         return pd.NaT
 
 
@@ -477,39 +289,16 @@ def parse_official_date(
 # 官方最新行情
 # ============================================================
 
-@st.cache_data(
-    ttl=60,
-    show_spinner=False
-)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_official_latest_quotes():
-
-    """
-    取得 TWSE + TPEX 官方最新行情。
-
-    回傳：
-
-    {
-        "2330": {
-            "market": "上市",
-            "date": Timestamp(...),
-            "date_raw": "...",
-            "Open": ...,
-            "High": ...,
-            "Low": ...,
-            "Close": ...,
-            "Volume": ...
-        }
-    }
-    """
 
     quotes = {}
 
-    # ========================================================
-    # TWSE 上市
-    # ========================================================
+    # --------------------------------------------------------
+    # TWSE
+    # --------------------------------------------------------
 
     try:
-
         response = requests.get(
             TWSE_STOCK_DAY_ALL_URL,
             headers=OFFICIAL_HEADERS,
@@ -517,7 +306,6 @@ def get_official_latest_quotes():
         )
 
         response.raise_for_status()
-
         data = response.json()
 
         if isinstance(data, list):
@@ -525,42 +313,27 @@ def get_official_latest_quotes():
             for row in data:
 
                 code = str(
-                    row.get(
-                        "Code",
-                        ""
-                    )
+                    row.get("Code", "")
                 ).strip()
 
                 if not code:
                     continue
 
                 try:
-
                     date_raw = str(
-                        row.get(
-                            "Date",
-                            ""
-                        )
+                        row.get("Date", "")
                     ).strip()
 
-                    official_date = (
-                        parse_official_date(
-                            date_raw
-                        )
+                    official_date = parse_official_date(
+                        date_raw
                     )
 
-                    if pd.isna(
-                        official_date
-                    ):
-
+                    if pd.isna(official_date):
                         continue
 
                     close = float(
                         str(
-                            row.get(
-                                "ClosingPrice",
-                                "0"
-                            )
+                            row.get("ClosingPrice", "0")
                         )
                         .replace(",", "")
                         or 0
@@ -568,28 +341,18 @@ def get_official_latest_quotes():
 
                     volume = float(
                         str(
-                            row.get(
-                                "TradeVolume",
-                                "0"
-                            )
+                            row.get("TradeVolume", "0")
                         )
                         .replace(",", "")
                         or 0
                     )
 
-                    if (
-                        close <= 0
-                        or volume <= 0
-                    ):
-
+                    if close <= 0 or volume <= 0:
                         continue
 
                     open_price = float(
                         str(
-                            row.get(
-                                "OpeningPrice",
-                                "0"
-                            )
+                            row.get("OpeningPrice", "0")
                         )
                         .replace(",", "")
                         or 0
@@ -597,10 +360,7 @@ def get_official_latest_quotes():
 
                     high_price = float(
                         str(
-                            row.get(
-                                "HighestPrice",
-                                "0"
-                            )
+                            row.get("HighestPrice", "0")
                         )
                         .replace(",", "")
                         or 0
@@ -608,40 +368,21 @@ def get_official_latest_quotes():
 
                     low_price = float(
                         str(
-                            row.get(
-                                "LowestPrice",
-                                "0"
-                            )
+                            row.get("LowestPrice", "0")
                         )
                         .replace(",", "")
                         or 0
                     )
 
                     quotes[code] = {
-
-                        "market":
-                            "上市",
-
-                        "date":
-                            official_date,
-
-                        "date_raw":
-                            date_raw,
-
-                        "Open":
-                            open_price,
-
-                        "High":
-                            high_price,
-
-                        "Low":
-                            low_price,
-
-                        "Close":
-                            close,
-
-                        "Volume":
-                            volume
+                        "market": "上市",
+                        "date": official_date,
+                        "date_raw": date_raw,
+                        "Open": open_price,
+                        "High": high_price,
+                        "Low": low_price,
+                        "Close": close,
+                        "Volume": volume
                     }
 
                 except Exception:
@@ -650,13 +391,11 @@ def get_official_latest_quotes():
     except Exception:
         pass
 
-
-    # ========================================================
-    # TPEX 上櫃
-    # ========================================================
+    # --------------------------------------------------------
+    # TPEX
+    # --------------------------------------------------------
 
     try:
-
         response = requests.get(
             TPEX_MAINBOARD_QUOTE_URL,
             headers=OFFICIAL_HEADERS,
@@ -664,7 +403,6 @@ def get_official_latest_quotes():
         )
 
         response.raise_for_status()
-
         data = response.json()
 
         if isinstance(data, list):
@@ -683,11 +421,6 @@ def get_official_latest_quotes():
 
                 try:
 
-                    # ------------------------------------------------
-                    # TPEX 不同版本 API 欄位可能略有不同
-                    # 優先尋找日期欄位
-                    # ------------------------------------------------
-
                     date_raw = ""
 
                     possible_date_keys = [
@@ -701,44 +434,24 @@ def get_official_latest_quotes():
                     for key in possible_date_keys:
 
                         if key in row:
-
                             value = str(
-                                row.get(
-                                    key,
-                                    ""
-                                )
+                                row.get(key, "")
                             ).strip()
 
                             if value:
-
                                 date_raw = value
                                 break
 
-                    official_date = (
-                        parse_official_date(
-                            date_raw
-                        )
+                    official_date = parse_official_date(
+                        date_raw
                     )
 
-                    # ------------------------------------------------
-                    # 如果 TPEX API 沒有日期欄位，
-                    # 不自行假設今天。
-                    #
-                    # 先跳過，避免製造假的 8/18。
-                    # ------------------------------------------------
-
-                    if pd.isna(
-                        official_date
-                    ):
-
+                    if pd.isna(official_date):
                         continue
 
                     close = float(
                         str(
-                            row.get(
-                                "Close",
-                                "0"
-                            )
+                            row.get("Close", "0")
                         )
                         .replace(",", "")
                         or 0
@@ -746,28 +459,18 @@ def get_official_latest_quotes():
 
                     volume = float(
                         str(
-                            row.get(
-                                "TradingShares",
-                                "0"
-                            )
+                            row.get("TradingShares", "0")
                         )
                         .replace(",", "")
                         or 0
                     )
 
-                    if (
-                        close <= 0
-                        or volume <= 0
-                    ):
-
+                    if close <= 0 or volume <= 0:
                         continue
 
                     open_price = float(
                         str(
-                            row.get(
-                                "Open",
-                                "0"
-                            )
+                            row.get("Open", "0")
                         )
                         .replace(",", "")
                         or 0
@@ -775,10 +478,7 @@ def get_official_latest_quotes():
 
                     high_price = float(
                         str(
-                            row.get(
-                                "High",
-                                "0"
-                            )
+                            row.get("High", "0")
                         )
                         .replace(",", "")
                         or 0
@@ -786,40 +486,21 @@ def get_official_latest_quotes():
 
                     low_price = float(
                         str(
-                            row.get(
-                                "Low",
-                                "0"
-                            )
+                            row.get("Low", "0")
                         )
                         .replace(",", "")
                         or 0
                     )
 
                     quotes[code] = {
-
-                        "market":
-                            "上櫃",
-
-                        "date":
-                            official_date,
-
-                        "date_raw":
-                            date_raw,
-
-                        "Open":
-                            open_price,
-
-                        "High":
-                            high_price,
-
-                        "Low":
-                            low_price,
-
-                        "Close":
-                            close,
-
-                        "Volume":
-                            volume
+                        "market": "上櫃",
+                        "date": official_date,
+                        "date_raw": date_raw,
+                        "Open": open_price,
+                        "High": high_price,
+                        "Low": low_price,
+                        "Close": close,
+                        "Volume": volume
                     }
 
                 except Exception:
@@ -835,87 +516,64 @@ def get_official_latest_quotes():
 # 官方行情診斷
 # ============================================================
 
-def get_official_date_summary(
-    quotes
-):
+def get_official_date_summary(quotes):
 
     if not quotes:
-
         return {}
 
     dates = []
 
     for quote in quotes.values():
 
-        date_value = quote.get(
-            "date"
-        )
+        date_value = quote.get("date")
 
         if (
             date_value is not None
             and not pd.isna(date_value)
         ):
-
             dates.append(
-                pd.Timestamp(
-                    date_value
-                ).normalize()
+                pd.Timestamp(date_value).normalize()
             )
 
     if not dates:
-
         return {}
 
     summary = (
         pd.Series(dates)
         .value_counts()
-        .sort_index(
-            ascending=False
-        )
+        .sort_index(ascending=False)
     )
 
     result = {}
 
     for date_value, count in summary.items():
-
         result[
-            date_value.strftime(
-                "%Y-%m-%d"
-            )
+            date_value.strftime("%Y-%m-%d")
         ] = int(count)
 
     return result
 
 
-def get_latest_official_date(
-    quotes
-):
+def get_latest_official_date(quotes):
 
     if not quotes:
-
         return None
 
     dates = []
 
     for quote in quotes.values():
 
-        date_value = quote.get(
-            "date"
-        )
+        date_value = quote.get("date")
 
         if (
             date_value is not None
             and not pd.isna(date_value)
         ):
-
             dates.append(
-                pd.Timestamp(
-                    date_value
-                ).normalize()
+                pd.Timestamp(date_value).normalize()
             )
 
     if not dates:
-
         return None
 
     return max(dates)
@@ -928,38 +586,22 @@ def get_latest_official_date(
 def flatten_yfinance_columns(df):
 
     if df is None or df.empty:
-
         return df
 
     df = df.copy()
 
-    if isinstance(
-        df.columns,
-        pd.MultiIndex
-    ):
+    if isinstance(df.columns, pd.MultiIndex):
 
-        level0 = (
-            df.columns
-            .get_level_values(0)
-        )
+        level0 = df.columns.get_level_values(0)
 
         if "Close" in level0:
-
             df.columns = level0
-
         else:
-
-            level1 = (
-                df.columns
-                .get_level_values(-1)
-            )
+            level1 = df.columns.get_level_values(-1)
 
             if "Close" in level1:
-
                 df.columns = level1
-
             else:
-
                 df.columns = level0
 
     return df
@@ -969,142 +611,70 @@ def flatten_yfinance_columns(df):
 # 將官方最新行情補入 Yahoo
 # ============================================================
 
-def apply_official_latest_quote(
-    df,
-    stock_id
-):
+def apply_official_latest_quote(df, stock_id):
 
-    if (
-        df is None
-        or df.empty
-    ):
-
+    if df is None or df.empty:
         return df
 
-    quotes = (
-        get_official_latest_quotes()
-    )
+    quotes = get_official_latest_quotes()
 
     if stock_id not in quotes:
-
         return df
 
-    quote = quotes[
-        stock_id
-    ]
+    quote = quotes[stock_id]
 
     try:
 
         df = df.copy()
 
-        # ----------------------------------------------------
-        # 統一 Yahoo 日期
-        # ----------------------------------------------------
+        index = pd.to_datetime(df.index)
 
-        index = pd.to_datetime(
-            df.index
-        )
+        if getattr(index, "tz", None) is not None:
+            index = index.tz_localize(None)
 
-        if getattr(
-            index,
-            "tz",
-            None
-        ) is not None:
-
-            index = index.tz_localize(
-                None
-            )
-
-        df.index = (
-            index.normalize()
-        )
-
-        # ----------------------------------------------------
-        # 官方日期
-        # ----------------------------------------------------
+        df.index = index.normalize()
 
         official_date = pd.Timestamp(
             quote["date"]
         ).normalize()
-
-        # ----------------------------------------------------
-        # 不允許官方日期比台灣今天更晚
-        # ----------------------------------------------------
 
         today = pd.Timestamp(
             get_taiwan_now().date()
         ).normalize()
 
         if official_date > today:
-
             return df
 
-        # ----------------------------------------------------
-        # 官方行情
-        # ----------------------------------------------------
-
         values = {
-
-            "Open":
-                quote["Open"],
-
-            "High":
-                quote["High"],
-
-            "Low":
-                quote["Low"],
-
-            "Close":
-                quote["Close"],
-
-            "Volume":
-                quote["Volume"]
+            "Open": quote["Open"],
+            "High": quote["High"],
+            "Low": quote["Low"],
+            "Close": quote["Close"],
+            "Volume": quote["Volume"]
         }
-
-        # ----------------------------------------------------
-        # 已存在 → 覆蓋
-        # ----------------------------------------------------
 
         if official_date in df.index:
 
             for col, value in values.items():
 
                 if col in df.columns:
-
                     df.loc[
                         official_date,
                         col
                     ] = value
 
-        # ----------------------------------------------------
-        # 不存在 → 新增
-        # ----------------------------------------------------
-
         else:
 
             new_row = pd.DataFrame(
                 [values],
-                index=[
-                    official_date
-                ]
+                index=[official_date]
             )
 
-            df = pd.concat(
-                [
-                    df,
-                    new_row
-                ]
-            )
+            df = pd.concat([df, new_row])
 
-        df = (
-            df
-            .sort_index()
-        )
-
-        return df
+        return df.sort_index()
 
     except Exception:
-
         return df
 
 
@@ -1112,60 +682,30 @@ def apply_official_latest_quote(
 # 只保留已完成交易日
 # ============================================================
 
-def prepare_completed_daily_data(
-    df_day
-):
+def prepare_completed_daily_data(df_day):
 
-    if (
-        df_day is None
-        or df_day.empty
-    ):
-
+    if df_day is None or df_day.empty:
         return pd.DataFrame()
 
     df_day = df_day.copy()
 
-    index = pd.to_datetime(
-        df_day.index
-    )
+    index = pd.to_datetime(df_day.index)
 
-    if getattr(
-        index,
-        "tz",
-        None
-    ) is not None:
+    if getattr(index, "tz", None) is not None:
+        index = index.tz_localize(None)
 
-        index = index.tz_localize(
-            None
-        )
-
-    df_day.index = (
-        index.normalize()
-    )
+    df_day.index = index.normalize()
 
     now = get_taiwan_now()
-
     today = now.date()
 
-    last_date = (
-        df_day.index[-1].date()
-    )
-
-    # --------------------------------------------------------
-    # 盤中：
-    # 如果最後一筆是今天，剔除今天未完成K
-    # --------------------------------------------------------
+    last_date = df_day.index[-1].date()
 
     if (
         last_date == today
         and not is_market_closed_for_today()
     ):
-
-        df_day = (
-            df_day
-            .iloc[:-1]
-            .copy()
-        )
+        df_day = df_day.iloc[:-1].copy()
 
     return df_day
 
@@ -1174,15 +714,9 @@ def prepare_completed_daily_data(
 # 建立完整週K
 # ============================================================
 
-def build_completed_weekly_data(
-    df_day
-):
+def build_completed_weekly_data(df_day):
 
-    if (
-        df_day is None
-        or df_day.empty
-    ):
-
+    if df_day is None or df_day.empty:
         return pd.DataFrame()
 
     required_cols = [
@@ -1197,13 +731,10 @@ def build_completed_weekly_data(
         col in df_day.columns
         for col in required_cols
     ):
-
         return pd.DataFrame()
 
     weekly = (
-        df_day[
-            required_cols
-        ]
+        df_day[required_cols]
         .resample("W-FRI")
         .agg({
             "Open": "first",
@@ -1214,16 +745,13 @@ def build_completed_weekly_data(
         })
     )
 
-    weekly = (
-        weekly
-        .dropna(
-            subset=[
-                "Open",
-                "High",
-                "Low",
-                "Close"
-            ]
-        )
+    weekly = weekly.dropna(
+        subset=[
+            "Open",
+            "High",
+            "Low",
+            "Close"
+        ]
     )
 
     now = get_taiwan_now()
@@ -1232,14 +760,9 @@ def build_completed_weekly_data(
 
         if (
             not weekly.empty
-            and weekly.index[-1].date()
-            >= now.date()
+            and weekly.index[-1].date() >= now.date()
         ):
-
-            weekly = (
-                weekly
-                .iloc[:-1]
-            )
+            weekly = weekly.iloc[:-1]
 
     return weekly
 
@@ -1248,10 +771,7 @@ def build_completed_weekly_data(
 # Pivot Low
 # ============================================================
 
-def calculate_pivot_lows(
-    low_values,
-    pivot_window=3
-):
+def calculate_pivot_lows(low_values, pivot_window=3):
 
     lows = np.asarray(
         low_values,
@@ -1260,10 +780,7 @@ def calculate_pivot_lows(
 
     pivot_indices = []
 
-    if len(lows) < (
-        pivot_window * 2 + 1
-    ):
-
+    if len(lows) < pivot_window * 2 + 1:
         return pivot_indices
 
     for i in range(
@@ -1276,16 +793,13 @@ def calculate_pivot_lows(
         ]
 
         right = lows[
-            i + 1:
-            i + pivot_window + 1
+            i + 1:i + pivot_window + 1
         ]
 
         if (
             lows[i] <= np.min(left)
-            and
-            lows[i] <= np.min(right)
+            and lows[i] <= np.min(right)
         ):
-
             pivot_indices.append(i)
 
     return pivot_indices
@@ -1351,147 +865,94 @@ def detect_w_bottom(
         }
 
     latest_close = closes[-1]
-
     candidates = []
 
     for left_idx in pivot_lows:
 
         if left_idx >= lookback // 2:
-
             continue
 
         for right_idx in pivot_lows:
 
             if right_idx <= left_idx:
-
                 continue
 
             if right_idx >= lookback - 5:
-
                 continue
 
-            gap = (
-                right_idx
-                - left_idx
-            )
+            gap = right_idx - left_idx
 
-            if (
-                gap < min_gap
-                or
-                gap > max_gap
-            ):
-
+            if gap < min_gap or gap > max_gap:
                 continue
 
             left_foot = lows[left_idx]
-
             right_foot = lows[right_idx]
 
             if left_foot <= 0:
-
                 continue
 
             avg_foot = (
-                left_foot
-                + right_foot
+                left_foot + right_foot
             ) / 2
 
             foot_diff_pct = (
-                abs(
-                    left_foot
-                    - right_foot
-                )
+                abs(left_foot - right_foot)
                 / avg_foot
             )
 
             if foot_diff_pct > tolerance:
-
                 continue
 
             between_highs = highs[
-                left_idx:
-                right_idx + 1
+                left_idx:right_idx + 1
             ]
 
-            if len(
-                between_highs
-            ) == 0:
-
+            if len(between_highs) == 0:
                 continue
 
             neck_high = np.max(
                 between_highs
             )
 
-            if (
-                neck_high
-                <= max(
-                    left_foot,
-                    right_foot
-                )
+            if neck_high <= max(
+                left_foot,
+                right_foot
             ):
-
                 continue
 
             if latest_close <= neck_high:
-
                 continue
 
-            right_after = closes[
-                right_idx:
-            ]
+            right_after = closes[right_idx:]
 
-            if len(
-                right_after
-            ) < 2:
-
+            if len(right_after) < 2:
                 continue
 
             right_rebound_high = np.max(
                 right_after
             )
 
-            if (
-                right_rebound_high
-                <= right_foot
-            ):
-
+            if right_rebound_high <= right_foot:
                 continue
 
             right_to_neck_pct = (
-                (
-                    neck_high
-                    - right_foot
-                )
+                (neck_high - right_foot)
                 / right_foot
                 * 100
             )
 
             if right_to_neck_pct < 3:
-
                 continue
 
             candidates.append({
-
-                "left_idx":
-                    left_idx,
-
-                "right_idx":
-                    right_idx,
-
-                "left_foot":
-                    float(left_foot),
-
-                "right_foot":
-                    float(right_foot),
-
-                "neck_high":
-                    float(neck_high),
-
-                "foot_diff_pct":
-                    float(
-                        foot_diff_pct * 100
-                    )
+                "left_idx": left_idx,
+                "right_idx": right_idx,
+                "left_foot": float(left_foot),
+                "right_foot": float(right_foot),
+                "neck_high": float(neck_high),
+                "foot_diff_pct": float(
+                    foot_diff_pct * 100
+                )
             })
 
     if not candidates:
@@ -1516,38 +977,15 @@ def detect_w_bottom(
     best = candidates[0]
 
     return {
-
         "is_w_bottom": True,
-
-        "left_idx":
-            best["left_idx"],
-
-        "right_idx":
-            best["right_idx"],
-
-        "left_foot":
-            round(
-                best["left_foot"],
-                2
-            ),
-
-        "right_foot":
-            round(
-                best["right_foot"],
-                2
-            ),
-
-        "neck_high":
-            round(
-                best["neck_high"],
-                2
-            ),
-
-        "foot_diff_pct":
-            round(
-                best["foot_diff_pct"],
-                2
-            )
+        "left_idx": best["left_idx"],
+        "right_idx": best["right_idx"],
+        "left_foot": round(best["left_foot"], 2),
+        "right_foot": round(best["right_foot"], 2),
+        "neck_high": round(best["neck_high"], 2),
+        "foot_diff_pct": round(
+            best["foot_diff_pct"], 2
+        )
     }
 
 
@@ -1555,10 +993,7 @@ def detect_w_bottom(
 # 股票清單
 # ============================================================
 
-@st.cache_data(
-    ttl=86400,
-    show_spinner=False
-)
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_all_tw_stocks_info():
 
     stocks_info = {}
@@ -1567,11 +1002,7 @@ def get_all_tw_stocks_info():
 
         if (
             info.type == "股票"
-            and info.market
-            in [
-                "上市",
-                "上櫃"
-            ]
+            and info.market in ["上市", "上櫃"]
         ):
 
             suffix = (
@@ -1580,27 +1011,17 @@ def get_all_tw_stocks_info():
                 else ".TWO"
             )
 
-            ticker = (
-                f"{code}{suffix}"
-            )
+            ticker = f"{code}{suffix}"
 
             stocks_info[ticker] = {
-
-                "code":
-                    code,
-
-                "name":
-                    info.name,
-
-                "group":
-                    (
-                        info.group
-                        if info.group
-                        else "其他"
-                    ),
-
-                "market":
-                    info.market
+                "code": code,
+                "name": info.name,
+                "group": (
+                    info.group
+                    if info.group
+                    else "其他"
+                ),
+                "market": info.market
             }
 
     return stocks_info
@@ -1610,32 +1031,18 @@ def get_all_tw_stocks_info():
 # 清理單股資料
 # ============================================================
 
-def clean_single_stock_data(
-    df,
-    ticker
-):
+def clean_single_stock_data(df, ticker):
 
     if df is None or df.empty:
-
         return pd.DataFrame()
 
     df = df.copy()
 
-    # --------------------------------------------------------
-    # MultiIndex
-    # --------------------------------------------------------
-
-    if isinstance(
-        df.columns,
-        pd.MultiIndex
-    ):
+    if isinstance(df.columns, pd.MultiIndex):
 
         try:
 
-            if ticker in (
-                df.columns
-                .get_level_values(-1)
-            ):
+            if ticker in df.columns.get_level_values(-1):
 
                 df = df.xs(
                     ticker,
@@ -1644,10 +1051,7 @@ def clean_single_stock_data(
                     drop_level=True
                 )
 
-            elif ticker in (
-                df.columns
-                .get_level_values(0)
-            ):
+            elif ticker in df.columns.get_level_values(0):
 
                 df = df.xs(
                     ticker,
@@ -1658,15 +1062,11 @@ def clean_single_stock_data(
 
         except Exception:
 
-            df = flatten_yfinance_columns(
-                df
-            )
+            df = flatten_yfinance_columns(df)
 
     else:
 
-        df = flatten_yfinance_columns(
-            df
-        )
+        df = flatten_yfinance_columns(df)
 
     required_cols = [
         "Open",
@@ -1680,12 +1080,9 @@ def clean_single_stock_data(
         col in df.columns
         for col in required_cols
     ):
-
         return pd.DataFrame()
 
-    df = df[
-        required_cols
-    ].copy()
+    df = df[required_cols].copy()
 
     df = (
         df
@@ -1696,31 +1093,12 @@ def clean_single_stock_data(
         .dropna()
     )
 
-    # --------------------------------------------------------
-    # 統一日期
-    # --------------------------------------------------------
+    index = pd.to_datetime(df.index)
 
-    index = pd.to_datetime(
-        df.index
-    )
+    if getattr(index, "tz", None) is not None:
+        index = index.tz_localize(None)
 
-    if getattr(
-        index,
-        "tz",
-        None
-    ) is not None:
-
-        index = index.tz_localize(
-            None
-        )
-
-    df.index = (
-        index.normalize()
-    )
-
-    # --------------------------------------------------------
-    # 官方最新行情補入
-    # --------------------------------------------------------
+    df.index = index.normalize()
 
     code = (
         ticker
@@ -1738,7 +1116,80 @@ def clean_single_stock_data(
 
 
 # ============================================================
-# 第一層快速篩選
+# V2.2.2 成交量同步核心
+#
+# 唯一修改重點：
+# 第一階段快速篩選與第二階段完整分析，
+# 必須使用「同一個官方最新交易日」的成交量。
+#
+# 其他 V2.2.1 選股條件完全不改。
+# ============================================================
+
+def synchronize_latest_volume(
+    stock_df,
+    code,
+    official_quotes
+):
+
+    if stock_df is None or stock_df.empty:
+        return stock_df
+
+    stock_df = stock_df.copy()
+
+    quote = official_quotes.get(code)
+
+    if quote is None:
+        return stock_df
+
+    official_date = pd.Timestamp(
+        quote["date"]
+    ).normalize()
+
+    today = pd.Timestamp(
+        get_taiwan_now().date()
+    ).normalize()
+
+    if official_date > today:
+        return stock_df
+
+    # 官方最新成交量覆蓋 Yahoo 同日期資料
+    # 或新增官方最新交易日。
+    values = {
+        "Open": quote["Open"],
+        "High": quote["High"],
+        "Low": quote["Low"],
+        "Close": quote["Close"],
+        "Volume": quote["Volume"]
+    }
+
+    if official_date in stock_df.index:
+
+        for col, value in values.items():
+
+            if col in stock_df.columns:
+                stock_df.loc[
+                    official_date,
+                    col
+                ] = value
+
+    else:
+
+        new_row = pd.DataFrame(
+            [values],
+            index=[official_date]
+        )
+
+        stock_df = pd.concat(
+            [stock_df, new_row]
+        )
+
+    stock_df = stock_df.sort_index()
+
+    return stock_df
+
+
+# ============================================================
+# 第一階段快速篩選
 # ============================================================
 
 def fast_filter_batch(
@@ -1747,111 +1198,67 @@ def fast_filter_batch(
     capital_map,
     min_capital,
     vol_multiplier,
-    breakout_days
+    breakout_days,
+    official_quotes
 ):
 
     candidates = []
-
     errors = []
 
     if (
         batch_df is None
         or batch_df.empty
     ):
-
         return candidates, errors
 
     if not isinstance(
         batch_df.columns,
         pd.MultiIndex
     ):
-
         return candidates, errors
 
     level0 = (
-        batch_df
-        .columns
+        batch_df.columns
         .get_level_values(0)
     )
 
     if "Close" not in level0:
-
         return candidates, errors
 
     if "High" not in level0:
-
         return candidates, errors
 
     if "Volume" not in level0:
-
         return candidates, errors
 
-    close_df = (
-        batch_df["Close"]
-    )
+    close_df = batch_df["Close"]
+    high_df = batch_df["High"]
+    volume_df = batch_df["Volume"]
 
-    high_df = (
-        batch_df["High"]
-    )
-
-    volume_df = (
-        batch_df["Volume"]
-    )
-
-    today = (
-        get_taiwan_now()
-        .date()
-    )
-
-    market_closed = (
-        is_market_closed_for_today()
-    )
+    today = get_taiwan_now().date()
+    market_closed = is_market_closed_for_today()
 
     for ticker in close_df.columns:
 
         if ticker not in stocks_info:
-
             continue
 
         try:
 
-            # ------------------------------------------------
-            # 建立單股 DataFrame
-            # ------------------------------------------------
-
             stock_df = pd.DataFrame({
-
-                "Close":
-                    close_df[ticker],
-
-                "High":
-                    high_df[ticker],
-
-                "Volume":
-                    volume_df[ticker]
+                "Close": close_df[ticker],
+                "High": high_df[ticker],
+                "Volume": volume_df[ticker]
             })
-
-            # ------------------------------------------------
-            # 日期統一
-            # ------------------------------------------------
 
             index = pd.to_datetime(
                 stock_df.index
             )
 
-            if getattr(
-                index,
-                "tz",
-                None
-            ) is not None:
+            if getattr(index, "tz", None) is not None:
+                index = index.tz_localize(None)
 
-                index = index.tz_localize(
-                    None
-                )
-
-            stock_df.index = (
-                index.normalize()
-            )
+            stock_df.index = index.normalize()
 
             stock_df = (
                 stock_df
@@ -1868,148 +1275,55 @@ def fast_filter_batch(
                 )
             )
 
-            if len(
-                stock_df
-            ) < MIN_DAILY_ROWS:
+            if len(stock_df) < MIN_DAILY_ROWS:
+                continue
 
+            code = stocks_info[ticker]["code"]
+
+            # ------------------------------------------------
+            # V2.2.2：
+            # 成交量、收盤價、最高價同步到同一官方日期。
+            # ------------------------------------------------
+
+            stock_df = synchronize_latest_volume(
+                stock_df,
+                code,
+                official_quotes
+            )
+
+            if stock_df.empty:
                 continue
 
             # ------------------------------------------------
-            # 官方最新行情
+            # 只保留已完成交易日
             # ------------------------------------------------
 
-            code = (
-                stocks_info[ticker]["code"]
-            )
-
-            official_quotes = (
-                get_official_latest_quotes()
-            )
-
-            if code in official_quotes:
-
-                quote = (
-                    official_quotes[code]
-                )
-
-                official_date = pd.Timestamp(
-                    quote["date"]
-                ).normalize()
-
-                values = {
-
-                    "Close":
-                        quote["Close"],
-
-                    "High":
-                        quote["High"],
-
-                    "Volume":
-                        quote["Volume"]
-                }
-
-                if official_date in stock_df.index:
-
-                    for col, value in values.items():
-
-                        stock_df.loc[
-                            official_date,
-                            col
-                        ] = value
-
-                else:
-
-                    new_row = pd.DataFrame(
-                        [values],
-                        index=[
-                            official_date
-                        ]
-                    )
-
-                    stock_df = pd.concat(
-                        [
-                            stock_df,
-                            new_row
-                        ]
-                    )
-
-                    stock_df = (
-                        stock_df
-                        .sort_index()
-                    )
-
-            # ------------------------------------------------
-            # 最新資料日期
-            # ------------------------------------------------
-
-            last_date = (
-                stock_df.index[-1]
-                .date()
-            )
-
-            # ------------------------------------------------
-            # 盤中：
-            # 若最後一筆仍是今天，
-            # 剔除未完成K線
-            # ------------------------------------------------
+            last_date = stock_df.index[-1].date()
 
             if (
                 last_date == today
                 and not market_closed
             ):
+                stock_df = stock_df.iloc[:-1].copy()
 
-                stock_df = (
-                    stock_df
-                    .iloc[:-1]
-                    .copy()
-                )
-
-            if len(
-                stock_df
-            ) < MIN_DAILY_ROWS:
-
+            if len(stock_df) < MIN_DAILY_ROWS:
                 continue
 
-            close_series = (
-                stock_df["Close"]
-            )
+            close_series = stock_df["Close"]
+            high_series = stock_df["High"]
+            volume_series = stock_df["Volume"]
 
-            high_series = (
-                stock_df["High"]
-            )
-
-            volume_series = (
-                stock_df["Volume"]
-            )
-
-            # ------------------------------------------------
-            # 股本
-            # ------------------------------------------------
-
-            capital = (
-                capital_map.get(
-                    code
-                )
-            )
+            capital = capital_map.get(code)
 
             if (
                 capital is not None
                 and capital < min_capital
             ):
-
                 continue
-
-            # ------------------------------------------------
-            # 最新價格
-            # ------------------------------------------------
 
             latest_close = float(
                 close_series.iloc[-1]
             )
-
-            # ------------------------------------------------
-            # 成交量
-            # ------------------------------------------------
 
             latest_volume = float(
                 volume_series.iloc[-1]
@@ -2019,39 +1333,22 @@ def fast_filter_batch(
                 latest_volume / 1000
             )
 
-            if (
-                latest_volume_lots
-                < MIN_VOLUME_LOTS
-            ):
-
+            if latest_volume_lots < MIN_VOLUME_LOTS:
                 continue
 
-            # ------------------------------------------------
-            # 前5日平均成交量
-            # ------------------------------------------------
-
-            if len(
-                volume_series
-            ) < 6:
-
+            if len(volume_series) < 6:
                 continue
 
             previous_5_volume = (
-                volume_series
-                .iloc[-6:-1]
+                volume_series.iloc[-6:-1]
             )
 
-            avg_5_volume = (
-                previous_5_volume.mean()
-            )
+            avg_5_volume = previous_5_volume.mean()
 
             if (
-                not np.isfinite(
-                    avg_5_volume
-                )
+                not np.isfinite(avg_5_volume)
                 or avg_5_volume <= 0
             ):
-
                 continue
 
             volume_ratio = (
@@ -2059,82 +1356,43 @@ def fast_filter_batch(
                 / avg_5_volume
             )
 
-            if (
-                volume_ratio
-                < vol_multiplier
-            ):
-
+            if volume_ratio < vol_multiplier:
                 continue
 
-            # ------------------------------------------------
-            # 40日創高
-            # ------------------------------------------------
-
-            if len(
-                high_series
-            ) <= breakout_days:
-
+            if len(high_series) <= breakout_days:
                 continue
 
             previous_high = (
                 high_series
-                .iloc[
-                    -(breakout_days + 1):-1
-                ]
+                .iloc[-(breakout_days + 1):-1]
                 .max()
             )
 
             is_breakout = (
-                latest_close
-                >= previous_high
+                latest_close >= previous_high
             )
 
             candidates.append({
-
-                "ticker":
-                    ticker,
-
-                "latest_close":
-                    latest_close,
-
-                "latest_volume":
-                    latest_volume,
-
-                "latest_volume_lots":
-                    latest_volume_lots,
-
-                "avg_5_volume":
-                    avg_5_volume,
-
-                "volume_ratio":
-                    volume_ratio,
-
-                "previous_high":
-                    previous_high,
-
-                "is_breakout":
-                    is_breakout,
-
-                "capital":
-                    capital,
-
-                "data_date":
-                    stock_df
-                    .index[-1]
-                    .strftime(
-                        "%Y-%m-%d"
-                    )
+                "ticker": ticker,
+                "latest_close": latest_close,
+                "latest_volume": latest_volume,
+                "latest_volume_lots": latest_volume_lots,
+                "avg_5_volume": avg_5_volume,
+                "volume_ratio": volume_ratio,
+                "previous_high": previous_high,
+                "is_breakout": is_breakout,
+                "capital": capital,
+                "data_date": (
+                    stock_df.index[-1]
+                    .strftime("%Y-%m-%d")
+                )
             })
 
         except Exception as e:
 
             errors.append({
-
-                "ticker":
-                    ticker,
-
-                "error":
-                    repr(e)
+                "ticker": ticker,
+                "error": repr(e)
             })
 
     return candidates, errors
@@ -2148,12 +1406,11 @@ def analyze_candidate_from_df(
     candidate,
     df_day,
     stocks_info,
-    params
+    params,
+    official_quotes
 ):
 
-    ticker = (
-        candidate["ticker"]
-    )
+    ticker = candidate["ticker"]
 
     try:
 
@@ -2163,141 +1420,94 @@ def analyze_candidate_from_df(
         )
 
         if df_day.empty:
-
             return None
 
-        df_day = (
-            prepare_completed_daily_data(
-                df_day
-            )
+        code = stocks_info[ticker]["code"]
+
+        # ----------------------------------------------------
+        # V2.2.2：
+        # 第二階段再次強制使用相同官方最新行情，
+        # 確保與第一階段成交量完全同步。
+        # ----------------------------------------------------
+
+        df_day = synchronize_latest_volume(
+            df_day,
+            code,
+            official_quotes
+        )
+
+        df_day = prepare_completed_daily_data(
+            df_day
         )
 
         if df_day.empty:
-
             return None
 
         if len(df_day) < MIN_FULL_ROWS:
-
             return None
 
-        df_week = (
-            build_completed_weekly_data(
-                df_day
-            )
+        df_week = build_completed_weekly_data(
+            df_day
         )
 
         if (
             df_week.empty
-            or
-            len(df_week)
-            < params["ma_week"]
+            or len(df_week) < params["ma_week"]
         ):
-
             return None
 
-        close_day = (
-            df_day["Close"]
-            .to_numpy(float)
-        )
+        close_day = df_day["Close"].to_numpy(float)
+        high_day = df_day["High"].to_numpy(float)
+        low_day = df_day["Low"].to_numpy(float)
+        vol_day = df_day["Volume"].to_numpy(float)
 
-        high_day = (
-            df_day["High"]
-            .to_numpy(float)
-        )
-
-        low_day = (
-            df_day["Low"]
-            .to_numpy(float)
-        )
-
-        vol_day = (
-            df_day["Volume"]
-            .to_numpy(float)
-        )
-
-        close_week = (
-            df_week["Close"]
-            .to_numpy(float)
-        )
+        close_week = df_week["Close"].to_numpy(float)
 
         # ====================================================
         # 週MA
         # ====================================================
 
         ma_week_series = (
-            pd.Series(
-                close_week
-            )
-            .rolling(
-                params["ma_week"]
-            )
+            pd.Series(close_week)
+            .rolling(params["ma_week"])
             .mean()
         )
 
-        ma_week_val = (
-            ma_week_series.iloc[-1]
-        )
+        ma_week_val = ma_week_series.iloc[-1]
+        latest_week_close = close_week[-1]
 
-        latest_week_close = (
-            close_week[-1]
-        )
-
-        if not np.isfinite(
-            ma_week_val
-        ):
-
+        if not np.isfinite(ma_week_val):
             return None
 
-        if (
-            latest_week_close
-            <= ma_week_val
-        ):
-
+        if latest_week_close <= ma_week_val:
             return None
 
         # ====================================================
         # 最新日線
         # ====================================================
 
-        latest_close = float(
-            close_day[-1]
-        )
+        latest_close = float(close_day[-1])
+        latest_volume = float(vol_day[-1])
 
-        latest_volume = float(
-            vol_day[-1]
-        )
-
-        latest_volume_lots = (
-            latest_volume / 1000
-        )
+        latest_volume_lots = latest_volume / 1000
 
         # ====================================================
         # 前5日均量
         # ====================================================
 
-        previous_5_volume = (
-            vol_day[-6:-1]
-        )
+        previous_5_volume = vol_day[-6:-1]
 
-        if len(
-            previous_5_volume
-        ) < 5:
-
+        if len(previous_5_volume) < 5:
             return None
 
-        avg_5_volume = (
-            np.mean(
-                previous_5_volume
-            )
+        avg_5_volume = np.mean(
+            previous_5_volume
         )
 
         if (
-            not np.isfinite(
-                avg_5_volume
-            )
+            not np.isfinite(avg_5_volume)
             or avg_5_volume <= 0
         ):
-
             return None
 
         volume_ratio = (
@@ -2305,27 +1515,17 @@ def analyze_candidate_from_df(
             / avg_5_volume
         )
 
-        if (
-            latest_volume_lots
-            < MIN_VOLUME_LOTS
-        ):
-
+        if latest_volume_lots < MIN_VOLUME_LOTS:
             return None
 
-        if (
-            volume_ratio
-            < params["vol_multiplier"]
-        ):
-
+        if volume_ratio < params["vol_multiplier"]:
             return None
 
         # ====================================================
         # 40日突破
         # ====================================================
 
-        breakout_days = (
-            params["breakout_days"]
-        )
+        breakout_days = params["breakout_days"]
 
         previous_highs = (
             high_day[
@@ -2333,19 +1533,15 @@ def analyze_candidate_from_df(
             ]
         )
 
-        if len(
-            previous_highs
-        ) < breakout_days:
-
+        if len(previous_highs) < breakout_days:
             return None
 
-        previous_high = (
-            np.max(previous_highs)
+        previous_high = np.max(
+            previous_highs
         )
 
         is_breakout = (
-            latest_close
-            >= previous_high
+            latest_close >= previous_high
         )
 
         breakout_distance_pct = (
@@ -2362,38 +1558,22 @@ def analyze_candidate_from_df(
         # ====================================================
 
         w_info = detect_w_bottom(
-
             high_day=high_day,
-
             low_day=low_day,
-
             close_day=close_day,
-
-            tolerance=
-                params["w_tolerance"],
-
-            lookback=
-                params["w_lookback"],
-
-            pivot_window=
-                params["pivot_window"],
-
-            min_gap=
-                params["w_min_gap"],
-
-            max_gap=
-                params["w_max_gap"]
+            tolerance=params["w_tolerance"],
+            lookback=params["w_lookback"],
+            pivot_window=params["pivot_window"],
+            min_gap=params["w_min_gap"],
+            max_gap=params["w_max_gap"]
         )
 
-        is_w_bottom = (
-            w_info["is_w_bottom"]
-        )
+        is_w_bottom = w_info["is_w_bottom"]
 
         if not (
             is_breakout
             or is_w_bottom
         ):
-
             return None
 
         # ====================================================
@@ -2403,30 +1583,20 @@ def analyze_candidate_from_df(
         reasons = []
 
         if is_breakout:
-
             reasons.append(
                 f"{breakout_days}日創高突破"
             )
 
         if is_w_bottom:
-
             reasons.append(
                 "W底突破"
             )
 
-        if (
-            is_breakout
-            and is_w_bottom
-        ):
-
+        if is_breakout and is_w_bottom:
             signal_type = "雙重訊號"
-
         elif is_breakout:
-
             signal_type = "區間創高"
-
         else:
-
             signal_type = "W底突破"
 
         # ====================================================
@@ -2442,118 +1612,56 @@ def analyze_candidate_from_df(
             * 100
         )
 
-        code = (
-            stocks_info[ticker]["code"]
-        )
-
-        capital = (
-            candidate.get("capital")
-        )
+        capital = candidate.get("capital")
 
         return {
-
-            "status":
-                "match",
-
-            "ticker":
-                ticker,
-
-            "code":
-                code,
-
-            "name":
-                stocks_info[ticker]["name"],
-
-            "group":
-                stocks_info[ticker]["group"],
-
-            "market":
-                stocks_info[ticker]["market"],
-
-            "capital":
-                capital,
-
-            "data_date":
+            "status": "match",
+            "ticker": ticker,
+            "code": code,
+            "name": stocks_info[ticker]["name"],
+            "group": stocks_info[ticker]["group"],
+            "market": stocks_info[ticker]["market"],
+            "capital": capital,
+            "data_date": (
                 df_day.index[-1]
-                .strftime(
-                    "%Y-%m-%d"
-                ),
-
-            "df_day":
-                df_day,
-
-            "close":
-                round(
-                    latest_close,
-                    2
-                ),
-
-            "volume":
-                int(
-                    latest_volume_lots
-                ),
-
-            "volume_avg_5":
-                round(
-                    avg_5_volume / 1000,
-                    0
-                ),
-
-            "volume_ratio":
-                round(
-                    volume_ratio,
-                    2
-                ),
-
-            "ma_week_val":
-                round(
-                    float(ma_week_val),
-                    2
-                ),
-
-            "distance_to_week_ma_pct":
-                round(
-                    float(
-                        distance_to_week_ma_pct
-                    ),
-                    2
-                ),
-
-            "previous_high":
-                round(
-                    float(previous_high),
-                    2
-                ),
-
-            "breakout_distance_pct":
-                round(
-                    float(
-                        breakout_distance_pct
-                    ),
-                    2
-                ),
-
-            "is_breakout":
-                bool(is_breakout),
-
-            "is_w_bottom":
-                bool(is_w_bottom),
-
-            "signal_type":
-                signal_type,
-
-            "reasons":
-                reasons,
-
-            "w_info":
-                w_info,
-
-            "div_history":
-                pd.DataFrame()
+                .strftime("%Y-%m-%d")
+            ),
+            "df_day": df_day,
+            "close": round(latest_close, 2),
+            "volume": int(latest_volume_lots),
+            "volume_avg_5": round(
+                avg_5_volume / 1000,
+                0
+            ),
+            "volume_ratio": round(
+                volume_ratio,
+                2
+            ),
+            "ma_week_val": round(
+                float(ma_week_val),
+                2
+            ),
+            "distance_to_week_ma_pct": round(
+                float(distance_to_week_ma_pct),
+                2
+            ),
+            "previous_high": round(
+                float(previous_high),
+                2
+            ),
+            "breakout_distance_pct": round(
+                float(breakout_distance_pct),
+                2
+            ),
+            "is_breakout": bool(is_breakout),
+            "is_w_bottom": bool(is_w_bottom),
+            "signal_type": signal_type,
+            "reasons": reasons,
+            "w_info": w_info,
+            "div_history": pd.DataFrame()
         }
 
     except Exception:
-
         return None
 
 
@@ -2561,61 +1669,37 @@ def analyze_candidate_from_df(
 # 最後才抓股利
 # ============================================================
 
-@st.cache_data(
-    ttl=86400,
-    show_spinner=False
-)
-def get_dividend_history(
-    ticker
-):
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_dividend_history(ticker):
 
     try:
 
-        stock_obj = yf.Ticker(
-            ticker
-        )
-
-        dividends = (
-            stock_obj.dividends
-        )
+        stock_obj = yf.Ticker(ticker)
+        dividends = stock_obj.dividends
 
         if (
             dividends is None
             or dividends.empty
         ):
-
             return pd.DataFrame(
-                columns=[
-                    "年份",
-                    "現金股利"
-                ]
+                columns=["年份", "現金股利"]
             )
 
-        dividends = (
-            dividends.copy()
-        )
+        dividends = dividends.copy()
 
-        dividends.index = (
-            pd.to_datetime(
-                dividends.index
-            )
+        dividends.index = pd.to_datetime(
+            dividends.index
         )
 
         div_df = pd.DataFrame({
-
-            "Dividend":
-                dividends
-
+            "Dividend": dividends
         })
 
-        div_df["Year"] = (
-            div_df.index.year
-        )
+        div_df["Year"] = div_df.index.year
 
         yearly_div = (
             div_df
-            .groupby("Year")
-            ["Dividend"]
+            .groupby("Year")["Dividend"]
             .sum()
             .reset_index()
         )
@@ -2631,12 +1715,8 @@ def get_dividend_history(
             "現金股利"
         ]
 
-        yearly_div[
-            "現金股利"
-        ] = (
-            yearly_div[
-                "現金股利"
-            ]
+        yearly_div["現金股利"] = (
+            yearly_div["現金股利"]
             .round(2)
         )
 
@@ -2645,10 +1725,7 @@ def get_dividend_history(
     except Exception:
 
         return pd.DataFrame(
-            columns=[
-                "年份",
-                "現金股利"
-            ]
+            columns=["年份", "現金股利"]
         )
 
 
@@ -2656,15 +1733,9 @@ def get_dividend_history(
 # 股利圖
 # ============================================================
 
-def plot_dividend_bar_chart(
-    div_df
-):
+def plot_dividend_bar_chart(div_df):
 
-    if (
-        div_df is None
-        or div_df.empty
-    ):
-
+    if div_df is None or div_df.empty:
         return
 
     fig, ax = plt.subplots(
@@ -2692,9 +1763,7 @@ def plot_dividend_bar_chart(
 
     for bar in bars:
 
-        height = (
-            bar.get_height()
-        )
+        height = bar.get_height()
 
         ax.annotate(
             f"{height}",
@@ -2716,22 +1785,12 @@ def plot_dividend_bar_chart(
         fontweight="bold"
     )
 
-    ax.set_ylabel(
-        "Dividend (TWD)"
-    )
+    ax.set_ylabel("Dividend (TWD)")
 
-    ax.spines[
-        "top"
-    ].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
-    ax.spines[
-        "right"
-    ].set_visible(False)
-
-    plt.xticks(
-        rotation=0
-    )
-
+    plt.xticks(rotation=0)
     plt.tight_layout()
 
     st.pyplot(
@@ -2762,13 +1821,10 @@ def plot_stock_chart(
     )
 
     if plot_df.empty:
-
         return
 
-    plot_df = (
-        flatten_yfinance_columns(
-            plot_df
-        )
+    plot_df = flatten_yfinance_columns(
+        plot_df
     )
 
     ma20 = (
@@ -2798,32 +1854,24 @@ def plot_stock_chart(
         ),
 
         mpf.make_addplot(
-            [
-                ma_week_val
-            ] * len(plot_df),
+            [ma_week_val] * len(plot_df),
             color="red",
             linestyle="dashed",
             width=1.2
         )
     ]
 
-    if w_info.get(
-        "is_w_bottom"
-    ):
+    if w_info.get("is_w_bottom"):
 
-        neck_high = (
-            w_info.get(
-                "neck_high"
-            )
+        neck_high = w_info.get(
+            "neck_high"
         )
 
         if neck_high is not None:
 
             addplots.append(
                 mpf.make_addplot(
-                    [
-                        neck_high
-                    ] * len(plot_df),
+                    [neck_high] * len(plot_df),
                     color="orange",
                     linestyle="dashdot",
                     width=1.2
@@ -2836,18 +1884,12 @@ def plot_stock_chart(
     ]
 
     if is_breakout:
-
         title_parts.append(
             f"{breakout_days}D Breakout"
         )
 
-    if w_info.get(
-        "is_w_bottom"
-    ):
-
-        title_parts.append(
-            "W-Bottom"
-        )
+    if w_info.get("is_w_bottom"):
+        title_parts.append("W-Bottom")
 
     fig, axes = mpf.plot(
 
@@ -2868,21 +1910,15 @@ def plot_stock_chart(
 
         addplot=addplots,
 
-        title="\n"
-        + " | ".join(
+        title="\n" + " | ".join(
             title_parts
         ),
 
         ylabel="Price (TWD)",
-
         volume=True,
-
         ylabel_lower="Volume",
-
         figratio=(16, 9),
-
         figscale=1.0,
-
         returnfig=True
     )
 
@@ -2899,7 +1935,7 @@ def plot_stock_chart(
 # ============================================================
 
 st.sidebar.header(
-    "🔍 V2.2.1 全自動選股控制台"
+    "🔍 V2.2.2 全自動選股控制台"
 )
 
 st.sidebar.info(
@@ -2913,23 +1949,12 @@ st.sidebar.subheader(
 )
 
 
-# ============================================================
-# 股本
-# ============================================================
-
-min_capital_yi = (
-    st.sidebar.number_input(
-
-        "最低股本（億元）",
-
-        min_value=0.0,
-
-        max_value=5000.0,
-
-        value=20.0,
-
-        step=1.0
-    )
+min_capital_yi = st.sidebar.number_input(
+    "最低股本（億元）",
+    min_value=0.0,
+    max_value=5000.0,
+    value=20.0,
+    step=1.0
 )
 
 min_capital = (
@@ -2938,170 +1963,84 @@ min_capital = (
 )
 
 
-# ============================================================
-# 放量
-# ============================================================
-
-vol_multiplier = (
-    st.sidebar.slider(
-
-        "放量倍數（對比前5日均量）",
-
-        min_value=1.0,
-
-        max_value=5.0,
-
-        value=1.5,
-
-        step=0.1
-    )
+vol_multiplier = st.sidebar.slider(
+    "放量倍數（對比前5日均量）",
+    min_value=1.0,
+    max_value=5.0,
+    value=1.5,
+    step=0.1
 )
 
 
-# ============================================================
-# 突破
-# ============================================================
-
-breakout_days = (
-    st.sidebar.number_input(
-
-        "突破回看期間（交易日）",
-
-        min_value=10,
-
-        max_value=60,
-
-        value=40,
-
-        step=1
-    )
+breakout_days = st.sidebar.number_input(
+    "突破回看期間（交易日）",
+    min_value=10,
+    max_value=60,
+    value=40,
+    step=1
 )
 
 
-# ============================================================
-# 週MA
-# ============================================================
-
-ma_week = (
-    st.sidebar.number_input(
-
-        "長期趨勢均線（週MA）",
-
-        min_value=10,
-
-        max_value=40,
-
-        value=20,
-
-        step=1
-    )
+ma_week = st.sidebar.number_input(
+    "長期趨勢均線（週MA）",
+    min_value=10,
+    max_value=40,
+    value=20,
+    step=1
 )
 
-
-# ============================================================
-# W底
-# ============================================================
 
 w_tolerance = (
     st.sidebar.slider(
-
         "W底左右腳容錯率",
-
         min_value=1.0,
-
         max_value=15.0,
-
         value=6.0,
-
         step=0.5
     )
     / 100.0
 )
 
-pivot_window = (
-    st.sidebar.number_input(
 
-        "W底 Pivot Low 判定寬度",
-
-        min_value=2,
-
-        max_value=6,
-
-        value=3,
-
-        step=1
-    )
-)
-
-w_min_gap = (
-    st.sidebar.number_input(
-
-        "W底左右腳最小間隔",
-
-        min_value=5,
-
-        max_value=15,
-
-        value=7,
-
-        step=1
-    )
-)
-
-w_max_gap = (
-    st.sidebar.number_input(
-
-        "W底左右腳最大間隔",
-
-        min_value=20,
-
-        max_value=45,
-
-        value=35,
-
-        step=1
-    )
+pivot_window = st.sidebar.number_input(
+    "W底 Pivot Low 判定寬度",
+    min_value=2,
+    max_value=6,
+    value=3,
+    step=1
 )
 
 
-# ============================================================
-# Parameters
-# ============================================================
+w_min_gap = st.sidebar.number_input(
+    "W底左右腳最小間隔",
+    min_value=5,
+    max_value=15,
+    value=7,
+    step=1
+)
+
+
+w_max_gap = st.sidebar.number_input(
+    "W底左右腳最大間隔",
+    min_value=20,
+    max_value=45,
+    value=35,
+    step=1
+)
+
 
 params = {
-
-    "min_capital":
-        min_capital,
-
-    "vol_multiplier":
-        vol_multiplier,
-
-    "breakout_days":
-        breakout_days,
-
-    "ma_week":
-        ma_week,
-
-    "w_tolerance":
-        w_tolerance,
-
-    "w_lookback":
-        60,
-
-    "pivot_window":
-        pivot_window,
-
-    "w_min_gap":
-        w_min_gap,
-
-    "w_max_gap":
-        w_max_gap
+    "min_capital": min_capital,
+    "vol_multiplier": vol_multiplier,
+    "breakout_days": breakout_days,
+    "ma_week": ma_week,
+    "w_tolerance": w_tolerance,
+    "w_lookback": 60,
+    "pivot_window": pivot_window,
+    "w_min_gap": w_min_gap,
+    "w_max_gap": w_max_gap
 }
 
-
-# ============================================================
-# Sidebar 條件
-# ============================================================
 
 st.sidebar.divider()
 
@@ -3135,19 +2074,13 @@ st.sidebar.markdown(
 # ============================================================
 
 if st.sidebar.button(
-    "🚀 開始 V2.2.1 全自動雷達掃描",
+    "🚀 開始 V2.2.2 全自動雷達掃描",
     type="primary"
 ):
 
     scan_start = time.time()
 
-    # ========================================================
-    # 股票清單
-    # ========================================================
-
-    stocks_info = (
-        get_all_tw_stocks_info()
-    )
+    stocks_info = get_all_tw_stocks_info()
 
     if not stocks_info:
 
@@ -3158,8 +2091,7 @@ if st.sidebar.button(
         st.stop()
 
     st.info(
-        f"股票清單取得完成："
-        f"{len(stocks_info)} 支"
+        f"股票清單取得完成：{len(stocks_info)} 支"
     )
 
 
@@ -3215,18 +2147,12 @@ if st.sidebar.button(
             ):
 
                 official_diag_rows.append({
-
-                    "官方資料日期":
-                        date_text,
-
-                    "股票數量":
-                        count
+                    "官方資料日期": date_text,
+                    "股票數量": count
                 })
 
-            official_diag_df = (
-                pd.DataFrame(
-                    official_diag_rows
-                )
+            official_diag_df = pd.DataFrame(
+                official_diag_rows
             )
 
             st.dataframe(
@@ -3255,13 +2181,12 @@ if st.sidebar.button(
         )
 
     st.info(
-        f"股本資料取得完成："
-        f"{len(capital_map)} 家"
+        f"股本資料取得完成：{len(capital_map)} 家"
     )
 
 
     # ========================================================
-    # 第一階段：批量下載
+    # 第一階段
     # ========================================================
 
     st.subheader(
@@ -3269,23 +2194,18 @@ if st.sidebar.button(
     )
 
     progress = st.progress(0)
-
     status = st.empty()
 
     fast_candidates = []
-
     batch_errors = []
 
     tickers = list(
         stocks_info.keys()
     )
 
-    total_batches = (
-        int(
-            np.ceil(
-                len(tickers)
-                / BATCH_SIZE
-            )
+    total_batches = int(
+        np.ceil(
+            len(tickers) / BATCH_SIZE
         )
     )
 
@@ -3301,46 +2221,30 @@ if st.sidebar.button(
     ):
 
         batch_tickers = tickers[
-            start:
-            start + BATCH_SIZE
+            start:start + BATCH_SIZE
         ]
 
         try:
 
             batch_df = yf.download(
-
                 batch_tickers,
-
-                period=
-                    DAILY_HISTORY_PERIOD,
-
+                period=DAILY_HISTORY_PERIOD,
                 interval="1d",
-
                 auto_adjust=True,
-
                 progress=False,
-
                 group_by="column",
-
                 threads=True
             )
 
             candidates, errors = (
                 fast_filter_batch(
-
                     batch_df=batch_df,
-
                     stocks_info=stocks_info,
-
                     capital_map=capital_map,
-
                     min_capital=min_capital,
-
-                    vol_multiplier=
-                        vol_multiplier,
-
-                    breakout_days=
-                        breakout_days
+                    vol_multiplier=vol_multiplier,
+                    breakout_days=breakout_days,
+                    official_quotes=official_quotes
                 )
             )
 
@@ -3355,26 +2259,18 @@ if st.sidebar.button(
         except Exception as e:
 
             batch_errors.append({
-
-                "ticker":
-                    ",".join(
-                        batch_tickers
-                    ),
-
-                "error":
-                    repr(e)
+                "ticker": ",".join(batch_tickers),
+                "error": repr(e)
             })
 
         progress.progress(
-            batch_number
-            / total_batches
+            batch_number / total_batches
         )
 
         status.text(
             (
                 f"批量掃描："
-                f"{batch_number}/"
-                f"{total_batches}｜"
+                f"{batch_number}/{total_batches}｜"
                 f"第一層候選："
                 f"{len(fast_candidates)} 支"
             )
@@ -3382,10 +2278,6 @@ if st.sidebar.button(
 
     progress.progress(1.0)
 
-
-    # ========================================================
-    # 第一層結果
-    # ========================================================
 
     st.success(
         (
@@ -3395,25 +2287,17 @@ if st.sidebar.button(
         )
     )
 
-    # --------------------------------------------------------
-    # 第一階段資料日期診斷
-    # --------------------------------------------------------
 
     if fast_candidates:
 
         fast_date_df = (
-            pd.DataFrame(
-                [
-                    {
-                        "資料日期":
-                            x["data_date"]
-                    }
-                    for x in fast_candidates
-                ]
-            )
-            .groupby(
-                "資料日期"
-            )
+            pd.DataFrame([
+                {
+                    "資料日期": x["data_date"]
+                }
+                for x in fast_candidates
+            ])
+            .groupby("資料日期")
             .size()
             .reset_index(
                 name="候選股票數"
@@ -3452,7 +2336,7 @@ if st.sidebar.button(
 
 
     # ========================================================
-    # 第二階段：批量取得完整2年資料
+    # 第二階段
     # ========================================================
 
     st.subheader(
@@ -3460,7 +2344,6 @@ if st.sidebar.button(
     )
 
     progress2 = st.progress(0)
-
     status2 = st.empty()
 
     matches = []
@@ -3475,12 +2358,9 @@ if st.sidebar.button(
         for x in fast_candidates
     }
 
-    total_candidate_batches = (
-        int(
-            np.ceil(
-                len(candidate_tickers)
-                / BATCH_SIZE
-            )
+    total_candidate_batches = int(
+        np.ceil(
+            len(candidate_tickers) / BATCH_SIZE
         )
     )
 
@@ -3498,63 +2378,41 @@ if st.sidebar.button(
     ):
 
         batch_tickers = candidate_tickers[
-            start:
-            start + BATCH_SIZE
+            start:start + BATCH_SIZE
         ]
 
         try:
 
             full_batch_df = yf.download(
-
                 batch_tickers,
-
-                period=
-                    FULL_HISTORY_PERIOD,
-
+                period=FULL_HISTORY_PERIOD,
                 interval="1d",
-
                 auto_adjust=True,
-
                 progress=False,
-
                 group_by="column",
-
                 threads=True
             )
 
             for ticker in batch_tickers:
 
-                candidate = (
-                    candidate_map[ticker]
-                )
+                candidate = candidate_map[ticker]
 
                 try:
 
                     result = (
                         analyze_candidate_from_df(
-
-                            candidate=
-                                candidate,
-
-                            df_day=
-                                full_batch_df,
-
-                            stocks_info=
-                                stocks_info,
-
-                            params=
-                                params
+                            candidate=candidate,
+                            df_day=full_batch_df,
+                            stocks_info=stocks_info,
+                            params=params,
+                            official_quotes=official_quotes
                         )
                     )
 
                     if result is not None:
-
-                        matches.append(
-                            result
-                        )
+                        matches.append(result)
 
                 except Exception:
-
                     pass
 
                 processed_candidates += 1
@@ -3580,21 +2438,12 @@ if st.sidebar.button(
         except Exception as e:
 
             batch_errors.append({
-
-                "ticker":
-                    ",".join(
-                        batch_tickers
-                    ),
-
-                "error":
-                    (
-                        "第二階段："
-                        + repr(e)
-                    )
+                "ticker": ",".join(batch_tickers),
+                "error": "第二階段：" + repr(e)
             })
 
-            processed_candidates += (
-                len(batch_tickers)
+            processed_candidates += len(
+                batch_tickers
             )
 
             progress2.progress(
@@ -3616,9 +2465,7 @@ if st.sidebar.button(
         "💰 第三階段：取得入選股利資料"
     )
 
-    dividend_progress = (
-        st.progress(0)
-    )
+    dividend_progress = st.progress(0)
 
     if matches:
 
@@ -3634,15 +2481,12 @@ if st.sidebar.button(
             )
 
             dividend_progress.progress(
-                i
-                / len(matches)
+                i / len(matches)
             )
 
     else:
 
-        dividend_progress.progress(
-            1.0
-        )
+        dividend_progress.progress(1.0)
 
 
     # ========================================================
@@ -3650,29 +2494,18 @@ if st.sidebar.button(
     # ========================================================
 
     matches.sort(
-
         key=lambda x: (
-
             x["group"],
-
             -int(
                 x["is_breakout"]
                 + x["is_w_bottom"]
             ),
-
             -x["volume_ratio"],
-
-            -x[
-                "distance_to_week_ma_pct"
-            ]
+            -x["distance_to_week_ma_pct"]
         )
     )
 
-
-    elapsed = (
-        time.time()
-        - scan_start
-    )
+    elapsed = time.time() - scan_start
 
 
     # ========================================================
@@ -3681,7 +2514,7 @@ if st.sidebar.button(
 
     st.success(
         f"""
-🎉 V2.2.1 掃描完成！
+🎉 V2.2.2 掃描完成！
 
 總掃描：{len(tickers)} 支
 
@@ -3698,24 +2531,19 @@ if st.sidebar.button(
 
 
     # ========================================================
-    # 最終資料日期診斷
+    # 最終日期診斷
     # ========================================================
 
     if matches:
 
         final_date_df = (
-            pd.DataFrame(
-                [
-                    {
-                        "資料日期":
-                            m["data_date"]
-                    }
-                    for m in matches
-                ]
-            )
-            .groupby(
-                "資料日期"
-            )
+            pd.DataFrame([
+                {
+                    "資料日期": m["data_date"]
+                }
+                for m in matches
+            ])
+            .groupby("資料日期")
             .size()
             .reset_index(
                 name="最終入選股票數"
@@ -3740,9 +2568,7 @@ if st.sidebar.button(
             latest_official_date is not None
             and len(final_date_df) == 1
             and final_date_df.iloc[0]["資料日期"]
-            == latest_official_date.strftime(
-                "%Y-%m-%d"
-            )
+            == latest_official_date.strftime("%Y-%m-%d")
         ):
 
             st.success(
@@ -3778,20 +2604,13 @@ if st.sidebar.button(
 
         industry_df = (
             pd.DataFrame([
-
                 {
-                    "產業":
-                        m["group"],
-
-                    "入選家數":
-                        1
+                    "產業": m["group"],
+                    "入選家數": 1
                 }
-
                 for m in matches
             ])
-            .groupby(
-                "產業"
-            )
+            .groupby("產業")
             .sum()
             .sort_values(
                 "入選家數",
@@ -3800,18 +2619,10 @@ if st.sidebar.button(
             .reset_index()
         )
 
-        industry_df[
-            "占全部入選"
-        ] = (
-
-            industry_df[
-                "入選家數"
-            ]
-
+        industry_df["占全部入選"] = (
+            industry_df["入選家數"]
             / len(matches)
-
             * 100
-
         ).round(1)
 
         st.dataframe(
@@ -3844,38 +2655,30 @@ if st.sidebar.button(
             capital_text = "—"
 
             if m["capital"] is not None:
-
                 capital_text = (
                     f"{m['capital'] / 100_000_000:.1f}"
                 )
 
             summary_rows.append({
 
-                "產業":
-                    m["group"],
+                "產業": m["group"],
 
-                "股票":
-                    (
-                        f"{m['name']} "
-                        f"({m['code']})"
-                    ),
+                "股票": (
+                    f"{m['name']} "
+                    f"({m['code']})"
+                ),
 
-                "市場":
-                    m["market"],
+                "市場": m["market"],
 
-                "股本(億)":
-                    capital_text,
+                "股本(億)": capital_text,
 
-                "收盤價":
-                    m["close"],
+                "收盤價": m["close"],
 
                 f"週{ma_week}MA":
                     m["ma_week_val"],
 
                 "距週MA":
-                    (
-                        f"{m['distance_to_week_ma_pct']:.2f}%"
-                    ),
+                    f"{m['distance_to_week_ma_pct']:.2f}%",
 
                 "今日量(張)":
                     f"{m['volume']:,}",
@@ -3887,30 +2690,22 @@ if st.sidebar.button(
                     f"{m['volume_ratio']:.2f}x",
 
                 f"{breakout_days}日創高":
-                    (
-                        "✅"
-                        if m["is_breakout"]
-                        else "—"
-                    ),
+                    "✅"
+                    if m["is_breakout"]
+                    else "—",
 
                 "W底突破":
-                    (
-                        "✅"
-                        if m["is_w_bottom"]
-                        else "—"
-                    ),
+                    "✅"
+                    if m["is_w_bottom"]
+                    else "—",
 
-                "訊號":
-                    m["signal_type"],
+                "訊號": m["signal_type"],
 
-                "資料日期":
-                    m["data_date"]
+                "資料日期": m["data_date"]
             })
 
-        summary_df = (
-            pd.DataFrame(
-                summary_rows
-            )
+        summary_df = pd.DataFrame(
+            summary_rows
         )
 
         st.dataframe(
@@ -3940,39 +2735,27 @@ if st.sidebar.button(
 """
             )
 
-            # ------------------------------------------------
-            # 第一排
-            # ------------------------------------------------
-
-            c1, c2, c3, c4 = (
-                st.columns(4)
-            )
+            c1, c2, c3, c4 = st.columns(4)
 
             with c1:
-
                 st.metric(
                     "收盤價",
                     f"{m['close']:.2f} 元"
                 )
 
             with c2:
-
                 st.metric(
                     f"週{ma_week}MA",
                     f"{m['ma_week_val']:.2f} 元"
                 )
 
             with c3:
-
                 st.metric(
                     "距週MA",
-                    (
-                        f"{m['distance_to_week_ma_pct']:.2f}%"
-                    )
+                    f"{m['distance_to_week_ma_pct']:.2f}%"
                 )
 
             with c4:
-
                 st.metric(
                     "股本",
                     (
@@ -3984,72 +2767,48 @@ if st.sidebar.button(
                     )
                 )
 
-            # ------------------------------------------------
-            # 第二排
-            # ------------------------------------------------
-
-            c1, c2, c3 = (
-                st.columns(3)
-            )
+            c1, c2, c3 = st.columns(3)
 
             with c1:
-
                 st.metric(
                     "今日成交量",
                     f"{m['volume']:,} 張"
                 )
 
             with c2:
-
                 st.metric(
                     "前5日均量",
                     f"{m['volume_avg_5']:,.0f} 張"
                 )
 
             with c3:
-
                 st.metric(
                     "放量倍數",
                     f"{m['volume_ratio']:.2f}x"
                 )
 
-            # ------------------------------------------------
-            # 突破
-            # ------------------------------------------------
-
             c1, c2 = st.columns(2)
 
             with c1:
-
                 st.metric(
                     f"{breakout_days}日最高價",
                     f"{m['previous_high']:.2f}"
                 )
 
             with c2:
-
                 st.metric(
                     "突破幅度",
                     f"{m['breakout_distance_pct']:.2f}%"
                 )
-
-            # ------------------------------------------------
-            # 入選原因
-            # ------------------------------------------------
 
             st.markdown(
                 "#### 🎯 入選原因"
             )
 
             for reason in m["reasons"]:
-
                 st.success(
                     f"✅ {reason}"
                 )
-
-            # ------------------------------------------------
-            # W底
-            # ------------------------------------------------
 
             if m["is_w_bottom"]:
 
@@ -4059,70 +2818,43 @@ if st.sidebar.button(
                     "#### 🔵 W底結構"
                 )
 
-                w1, w2, w3, w4 = (
-                    st.columns(4)
-                )
+                w1, w2, w3, w4 = st.columns(4)
 
                 with w1:
-
                     st.metric(
                         "左腳",
                         f"{w['left_foot']:.2f}"
                     )
 
                 with w2:
-
                     st.metric(
                         "右腳",
                         f"{w['right_foot']:.2f}"
                     )
 
                 with w3:
-
                     st.metric(
                         "頸線",
                         f"{w['neck_high']:.2f}"
                     )
 
                 with w4:
-
                     st.metric(
                         "左右腳差異",
-                        (
-                            f"{w['foot_diff_pct']:.2f}%"
-                        )
+                        f"{w['foot_diff_pct']:.2f}%"
                     )
 
-            # ------------------------------------------------
-            # 停損風險
-            # ------------------------------------------------
-
             distance = (
-                m[
-                    "distance_to_week_ma_pct"
-                ]
+                m["distance_to_week_ma_pct"]
             )
 
             if distance < 3:
-
-                risk_label = (
-                    "⚠️ 非常接近週MA"
-                )
-
+                risk_label = "⚠️ 非常接近週MA"
             elif distance < 7:
-
-                risk_label = (
-                    "🟡 距週MA適中"
-                )
-
+                risk_label = "🟡 距週MA適中"
             elif distance < 12:
-
-                risk_label = (
-                    "🟢 距週MA較寬"
-                )
-
+                risk_label = "🟢 距週MA較寬"
             else:
-
                 risk_label = (
                     "⚠️ 距週MA過遠，注意追高"
                 )
@@ -4142,14 +2874,7 @@ if st.sidebar.button(
 """
             )
 
-            # ------------------------------------------------
-            # 股利
-            # ------------------------------------------------
-
-            if not (
-                m["div_history"]
-                .empty
-            ):
+            if not m["div_history"].empty:
 
                 st.markdown(
                     "#### 📊 近十年現金股利"
@@ -4165,33 +2890,17 @@ if st.sidebar.button(
                     "沒有可取得的近期股利資料。"
                 )
 
-            # ------------------------------------------------
-            # K線
-            # ------------------------------------------------
-
             st.markdown(
                 "#### 📈 技術圖"
             )
 
             plot_stock_chart(
-
-                ticker=
-                    m["ticker"],
-
-                df_day=
-                    m["df_day"],
-
-                ma_week_val=
-                    m["ma_week_val"],
-
-                breakout_days=
-                    breakout_days,
-
-                is_breakout=
-                    m["is_breakout"],
-
-                w_info=
-                    m["w_info"]
+                ticker=m["ticker"],
+                df_day=m["df_day"],
+                ma_week_val=m["ma_week_val"],
+                breakout_days=breakout_days,
+                is_breakout=m["is_breakout"],
+                w_info=m["w_info"]
             )
 
             st.divider()
@@ -4210,23 +2919,14 @@ if st.sidebar.button(
         )
 
 
-    # ========================================================
-    # 批量錯誤
-    # ========================================================
-
     if batch_errors:
 
         with st.expander(
-            (
-                f"⚠️ 批量資料錯誤 "
-                f"（{len(batch_errors)} 筆）"
-            )
+            f"⚠️ 批量資料錯誤（{len(batch_errors)} 筆）"
         ):
 
-            error_df = (
-                pd.DataFrame(
-                    batch_errors
-                )
+            error_df = pd.DataFrame(
+                batch_errors
             )
 
             st.dataframe(
@@ -4236,18 +2936,14 @@ if st.sidebar.button(
             )
 
 
-    # ========================================================
-    # 完整完成資訊
-    # ========================================================
-
     st.caption(
         (
-            "V2.2.1 完成："
+            "V2.2.2 完成："
+            "V2.2.1 選股條件完全保留｜"
+            "僅修正成交量同步｜"
+            "第一、二階段使用同一官方最新交易日｜"
             "全台上市＋上櫃批次掃描｜"
             "Yahoo歷史資料＋TWSE/TPEX官方最新行情｜"
-            "第二階段批次完整分析｜"
-            "產業集中｜"
-            "入選股利｜"
-            "資料日期診斷"
+            "產業集中｜入選股利｜資料日期診斷"
         )
     )

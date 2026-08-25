@@ -20,16 +20,16 @@ from datetime import time as dt_time, datetime
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
-    page_title="台股 V2.2.3 強勢突破全自動雷達",
+    page_title="台股 V2.2.2 強勢突破全自動雷達",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("📈 台股 V2.2.3 全自動選股雷達 (盤後對齊版)")
+st.title("📈 台股 V2.2.2 全自動選股雷達")
 
 st.caption(
-    "V2.2.3 盤後數據完全對齊版：全台上市＋上櫃｜股本過濾｜"
-    "Yahoo歷史資料＋TWSE/TPEX官方盤後權威行情｜"
+    "V2.2.2 成交量同步修正版：全台上市＋上櫃｜股本過濾｜"
+    "Yahoo歷史資料＋TWSE/TPEX官方最新行情｜"
     "已完成交易日｜週20MA｜前5日均量放量｜"
     "40日創高 OR W底突破｜產業集中"
 )
@@ -286,7 +286,7 @@ def parse_official_date(date_raw):
 
 
 # ============================================================
-# 官方最新行情 (V2.2.3 盤後精確計算)
+# 官方最新行情
 # ============================================================
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -339,7 +339,7 @@ def get_official_latest_quotes():
                         or 0
                     )
 
-                    raw_volume = float(
+                    volume = float(
                         str(
                             row.get("TradeVolume", "0")
                         )
@@ -347,11 +347,8 @@ def get_official_latest_quotes():
                         or 0
                     )
 
-                    if close <= 0 or raw_volume <= 0:
+                    if close <= 0 or volume <= 0:
                         continue
-
-                    # V2.2.3：官方 TradeVolume 為總股數，統一精確轉為標準四捨五入張數
-                    volume = round(raw_volume / 1000) * 1000
 
                     open_price = float(
                         str(
@@ -460,7 +457,7 @@ def get_official_latest_quotes():
                         or 0
                     )
 
-                    raw_volume = float(
+                    volume = float(
                         str(
                             row.get("TradingShares", "0")
                         )
@@ -468,11 +465,8 @@ def get_official_latest_quotes():
                         or 0
                     )
 
-                    if close <= 0 or raw_volume <= 0:
+                    if close <= 0 or volume <= 0:
                         continue
-
-                    # V2.2.3：官方 TradingShares 為總股數，統一精確轉為標準四捨五入張數
-                    volume = round(raw_volume / 1000) * 1000
 
                     open_price = float(
                         str(
@@ -614,7 +608,7 @@ def flatten_yfinance_columns(df):
 
 
 # ============================================================
-# 將官方最新行情補入 Yahoo (V2.2.3 權威覆蓋)
+# 將官方最新行情補入 Yahoo
 # ============================================================
 
 def apply_official_latest_quote(df, stock_id):
@@ -1122,7 +1116,13 @@ def clean_single_stock_data(df, ticker):
 
 
 # ============================================================
-# V2.2.3 盤後成交量同步核心
+# V2.2.2 成交量同步核心
+#
+# 唯一修改重點：
+# 第一階段快速篩選與第二階段完整分析，
+# 必須使用「同一個官方最新交易日」的成交量。
+#
+# 其他 V2.2.1 選股條件完全不改。
 # ============================================================
 
 def synchronize_latest_volume(
@@ -1152,12 +1152,14 @@ def synchronize_latest_volume(
     if official_date > today:
         return stock_df
 
+    # 官方最新成交量覆蓋 Yahoo 同日期資料
+    # 或新增官方最新交易日。
     values = {
         "Open": quote["Open"],
         "High": quote["High"],
         "Low": quote["Low"],
         "Close": quote["Close"],
-        "Volume": quote["Volume"]  # 已在 get_official_latest_quotes 中經 round 精確處理
+        "Volume": quote["Volume"]
     }
 
     if official_date in stock_df.index:
@@ -1278,6 +1280,11 @@ def fast_filter_batch(
 
             code = stocks_info[ticker]["code"]
 
+            # ------------------------------------------------
+            # V2.2.2：
+            # 成交量、收盤價、最高價同步到同一官方日期。
+            # ------------------------------------------------
+
             stock_df = synchronize_latest_volume(
                 stock_df,
                 code,
@@ -1286,6 +1293,10 @@ def fast_filter_batch(
 
             if stock_df.empty:
                 continue
+
+            # ------------------------------------------------
+            # 只保留已完成交易日
+            # ------------------------------------------------
 
             last_date = stock_df.index[-1].date()
 
@@ -1318,8 +1329,7 @@ def fast_filter_batch(
                 volume_series.iloc[-1]
             )
 
-            # V2.2.3 精確張數計算
-            latest_volume_lots = round(
+            latest_volume_lots = (
                 latest_volume / 1000
             )
 
@@ -1329,7 +1339,6 @@ def fast_filter_batch(
             if len(volume_series) < 6:
                 continue
 
-            # 歷史 yfinance 的 Volume 換算為張數計算均量，維持比較基準一致
             previous_5_volume = (
                 volume_series.iloc[-6:-1]
             )
@@ -1415,6 +1424,12 @@ def analyze_candidate_from_df(
 
         code = stocks_info[ticker]["code"]
 
+        # ----------------------------------------------------
+        # V2.2.2：
+        # 第二階段再次強制使用相同官方最新行情，
+        # 確保與第一階段成交量完全同步。
+        # ----------------------------------------------------
+
         df_day = synchronize_latest_volume(
             df_day,
             code,
@@ -1468,13 +1483,13 @@ def analyze_candidate_from_df(
             return None
 
         # ====================================================
-        # 最新日線 (V2.2.3 精確張數計算)
+        # 最新日線
         # ====================================================
 
         latest_close = float(close_day[-1])
         latest_volume = float(vol_day[-1])
 
-        latest_volume_lots = round(latest_volume / 1000)
+        latest_volume_lots = latest_volume / 1000
 
         # ====================================================
         # 前5日均量
@@ -1920,11 +1935,11 @@ def plot_stock_chart(
 # ============================================================
 
 st.sidebar.header(
-    "🔍 V2.2.3 全自動選股控制台"
+    "🔍 V2.2.2 全自動選股控制台"
 )
 
 st.sidebar.info(
-    "本版本專為下午 4 點後盤後完全對齊設計。"
+    "本版本固定掃描全台上市＋上櫃股票。"
 )
 
 st.sidebar.divider()
@@ -2059,7 +2074,7 @@ st.sidebar.markdown(
 # ============================================================
 
 if st.sidebar.button(
-    "🚀 開始 V2.2.3 全自動雷達掃描",
+    "🚀 開始 V2.2.2 全自動雷達掃描",
     type="primary"
 ):
 
@@ -2085,7 +2100,7 @@ if st.sidebar.button(
     # ========================================================
 
     with st.spinner(
-        "正在取得 TWSE＋TPEX 官方盤後最新行情..."
+        "正在取得 TWSE＋TPEX 官方最新行情..."
     ):
 
         official_quotes = (
@@ -2499,7 +2514,7 @@ if st.sidebar.button(
 
     st.success(
         f"""
-🎉 V2.2.3 掃描完成！
+🎉 V2.2.2 掃描完成！
 
 總掃描：{len(tickers)} 支
 
@@ -2558,7 +2573,7 @@ if st.sidebar.button(
 
             st.success(
                 (
-                    "✅ 日期與張數對齊正常："
+                    "✅ 日期同步正常："
                     "所有最終入選股票均使用官方最新交易日 "
                     f"{latest_official_date.strftime('%Y-%m-%d')}"
                 )
@@ -2569,6 +2584,7 @@ if st.sidebar.button(
             st.warning(
                 (
                     "⚠️ 日期仍存在差異。"
+                    "這次先不要調整選股條件，"
                     "請保留下方日期診斷結果。"
                 )
             )
@@ -2922,9 +2938,9 @@ if st.sidebar.button(
 
     st.caption(
         (
-            "V2.2.3 完成："
+            "V2.2.2 完成："
             "V2.2.1 選股條件完全保留｜"
-            "修正成交張數與官方盤後結算數據 100% 完全對齊｜"
+            "僅修正成交量同步｜"
             "第一、二階段使用同一官方最新交易日｜"
             "全台上市＋上櫃批次掃描｜"
             "Yahoo歷史資料＋TWSE/TPEX官方最新行情｜"

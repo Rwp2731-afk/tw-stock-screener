@@ -83,7 +83,50 @@ def get_company_capital_data():
 
     capital_map = {}
 
+    # --------------------------------------------------------
+    # 共用：安全解析資本額
+    # --------------------------------------------------------
+
+    def parse_capital(value):
+
+        if value is None:
+            return None
+
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            try:
+                capital = float(value)
+                return capital if capital > 0 else None
+            except Exception:
+                return None
+
+        text = str(value).strip()
+
+        if not text or text in {"-", "—", "－", "N/A", "NA", "None", "nan"}:
+            return None
+
+        text = (
+            text
+            .replace(",", "")
+            .replace("，", "")
+            .replace(" ", "")
+            .replace("\u3000", "")
+        )
+
+        # 有些官方欄位可能附帶「元」
+        text = text.replace("元", "")
+
+        try:
+            capital = float(text)
+            return capital if capital > 0 else None
+        except Exception:
+            return None
+
+    # --------------------------------------------------------
+    # TWSE：上市公司
+    # --------------------------------------------------------
+
     try:
+
         url_twse = (
             "https://openapi.twse.com.tw/v1/"
             "opendata/t187ap03_L"
@@ -99,55 +142,83 @@ def get_company_capital_data():
         data = response.json()
 
         if isinstance(data, list):
+
             df = pd.DataFrame(data)
 
             if not df.empty:
+
                 code_col = None
                 capital_col = None
 
+                # 上市 API 主要使用中文欄位名稱
                 for col in df.columns:
-                    col_str = str(col)
 
-                    if (
+                    col_str = str(col).strip()
+
+                    if code_col is None and (
                         "公司代號" in col_str
                         or col_str == "Code"
                     ):
                         code_col = col
 
-                    if (
+                    if capital_col is None and (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
                     ):
                         capital_col = col
 
-                if code_col is not None and capital_col is not None:
+                if (
+                    code_col is not None
+                    and capital_col is not None
+                ):
+
                     for _, row in df.iterrows():
-                        code = str(row[code_col]).strip()
-                        capital_raw = (
-                            str(row[capital_col])
-                            .replace(",", "")
-                            .strip()
+
+                        code = str(
+                            row[code_col]
+                        ).strip()
+
+                        capital = parse_capital(
+                            row[capital_col]
                         )
 
-                        try:
-                            capital = float(capital_raw)
-
-                            if capital > 0:
-                                capital_map[code] = capital
-                        except Exception:
-                            pass
+                        if code and capital is not None:
+                            capital_map[code] = capital
 
     except Exception:
         pass
 
+    # --------------------------------------------------------
+    # TPEX：上櫃公司
+    #
+    # V2.2.2 原本使用：
+    # mopsfin_t187ap03_O
+    #
+    # 問題：
+    # 上櫃基本資料 API 的欄位命名與上市不同，
+    # 且目前 API 回傳的是英文欄位；原程式只找
+    # 「實收資本額／實收資本」，因此 capital_col
+    # 很容易找不到，造成所有上櫃股票 capital=None。
+    #
+    # 官方上櫃行情 API：
+    # tpex_mainboard_quotes
+    #
+    # 其中 Capitals 就是「實收資本額」，
+    # 並且 SecuritiesCompanyCode 就是股票代號。
+    #
+    # 這裡只修正「資本額資料來源」，
+    # 不碰任何選股條件。
+    # --------------------------------------------------------
+
     try:
-        url_tpex = (
+
+        url_tpex_quotes = (
             "https://www.tpex.org.tw/openapi/v1/"
-            "mopsfin_t187ap03_O"
+            "tpex_mainboard_quotes"
         )
 
         response = requests.get(
-            url_tpex,
+            url_tpex_quotes,
             headers=OFFICIAL_HEADERS,
             timeout=REQUEST_TIMEOUT
         )
@@ -156,43 +227,135 @@ def get_company_capital_data():
         data = response.json()
 
         if isinstance(data, list):
+
+            for row in data:
+
+                code = str(
+                    row.get(
+                        "SecuritiesCompanyCode",
+                        ""
+                    )
+                ).strip()
+
+                if not code:
+                    continue
+
+                # 官方 TPEX 欄位：Capitals = 實收資本額
+                capital = parse_capital(
+                    row.get("Capitals")
+                )
+
+                if capital is not None:
+                    capital_map[code] = capital
+
+    except Exception:
+        pass
+
+    # --------------------------------------------------------
+    # TPEX 備援：
+    # 如果 tpex_mainboard_quotes 某些股票沒有 Capitals，
+    # 再從上櫃公司基本資料 API 嘗試取得。
+    #
+    # 這只是資本額資料 fallback，不改任何選股邏輯。
+    # --------------------------------------------------------
+
+    try:
+
+        url_tpex_basic = (
+            "https://www.tpex.org.tw/openapi/v1/"
+            "mopsfin_t187ap03_O"
+        )
+
+        response = requests.get(
+            url_tpex_basic,
+            headers=OFFICIAL_HEADERS,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        if isinstance(data, list):
+
             df = pd.DataFrame(data)
 
             if not df.empty:
+
                 code_col = None
                 capital_col = None
 
+                # TPEX 基本資料主要使用英文欄位。
+                # 這裡採「精確／關鍵字」雙重辨識，
+                # 避免因欄位名稱略有差異而整批失效。
+                code_candidates = {
+                    "SecuritiesCompanyCode",
+                    "CompanyCode",
+                    "Code",
+                    "公司代號"
+                }
+
+                capital_candidates = {
+                    "Capitals",
+                    "Capital",
+                    "PaidInCapital",
+                    "PaidinCapital",
+                    "PaidInCapitalAmount",
+                    "實收資本額",
+                    "實收資本"
+                }
+
                 for col in df.columns:
-                    col_str = str(col)
+
+                    col_str = str(col).strip()
 
                     if (
-                        "公司代號" in col_str
-                        or col_str == "SecuritiesCompanyCode"
+                        code_col is None
+                        and (
+                            col_str in code_candidates
+                            or "公司代號" in col_str
+                        )
                     ):
                         code_col = col
 
-                    if (
-                        "實收資本額" in col_str
-                        or "實收資本" in col_str
-                    ):
-                        capital_col = col
+                    if capital_col is None:
 
-                if code_col is not None and capital_col is not None:
+                        if col_str in capital_candidates:
+                            capital_col = col
+
+                        elif (
+                            "實收資本額" in col_str
+                            or "實收資本" in col_str
+                        ):
+                            capital_col = col
+
+                        elif (
+                            "PaidInCapital" in col_str
+                            or "PaidinCapital" in col_str
+                        ):
+                            capital_col = col
+
+                if (
+                    code_col is not None
+                    and capital_col is not None
+                ):
+
                     for _, row in df.iterrows():
-                        code = str(row[code_col]).strip()
-                        capital_raw = (
-                            str(row[capital_col])
-                            .replace(",", "")
-                            .strip()
+
+                        code = str(
+                            row[code_col]
+                        ).strip()
+
+                        # 只有在前一個官方來源沒有資料時
+                        # 才使用 fallback。
+                        if code in capital_map:
+                            continue
+
+                        capital = parse_capital(
+                            row[capital_col]
                         )
 
-                        try:
-                            capital = float(capital_raw)
-
-                            if capital > 0:
-                                capital_map[code] = capital
-                        except Exception:
-                            pass
+                        if code and capital is not None:
+                            capital_map[code] = capital
 
     except Exception:
         pass

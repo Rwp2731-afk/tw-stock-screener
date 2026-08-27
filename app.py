@@ -68,140 +68,97 @@ OFFICIAL_HEADERS = {
         "(Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 "
         "(KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+        "Chrome/122.0.0.0 Safari/537.36"
     ),
-    "Accept": "application/json,text/plain,*/*"
+    "Accept": "application/json,text/plain,*/*",
+    "Referer": "https://www.tpex.org.tw/",
+    "Origin": "https://www.tpex.org.tw"
 }
 
 
 # ============================================================
-# Streamlit Cache
+# Streamlit Cache - 公司股本資料 (含上市/上櫃抗擋與備用源)
 # ============================================================
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_company_capital_data():
-
+def get_company_capital_data_v2():
     capital_map = {}
 
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Referer": "https://www.tpex.org.tw/",
+        "Origin": "https://www.tpex.org.tw"
+    }
+
     # --------------------------------------------------------
-    # TWSE 上市公司資本額
+    # 1. TWSE 上市公司資本額
     # --------------------------------------------------------
     try:
-        url_twse = (
-            "https://openapi.twse.com.tw/v1/"
-            "opendata/t187ap03_L"
-        )
-
-        response = requests.get(
-            url_twse,
-            headers=OFFICIAL_HEADERS,
-            timeout=REQUEST_TIMEOUT
-        )
-
-        response.raise_for_status()
-        data = response.json()
-
-        if isinstance(data, list):
-            df = pd.DataFrame(data)
-
-            if not df.empty:
-                code_col = None
-                capital_col = None
-
-                for col in df.columns:
-                    col_str = str(col)
-
-                    if (
-                        "公司代號" in col_str
-                        or col_str.lower() in ["code", "companycode"]
-                    ):
-                        code_col = col
-
-                    if (
-                        "實收資本" in col_str
-                        or col_str.lower() in ["capital", "paidincapital"]
-                    ):
-                        capital_col = col
-
-                if code_col is not None and capital_col is not None:
-                    for _, row in df.iterrows():
-                        code = str(row[code_col]).strip()
-                        capital_raw = (
-                            str(row[capital_col])
-                            .replace(",", "")
-                            .strip()
-                        )
-
-                        try:
-                            capital = float(capital_raw)
-
-                            if capital > 0:
-                                capital_map[code] = capital
-                        except Exception:
-                            pass
-
+        url_twse = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+        response = requests.get(url_twse, headers=headers, timeout=REQUEST_TIMEOUT)
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, list):
+                for row in data:
+                    code = str(row.get("公司代號", row.get("CompanyCode", ""))).strip()
+                    cap_str = str(row.get("實收資本額(元)", row.get("Capital", "0"))).replace(",", "").strip()
+                    try:
+                        cap = float(cap_str)
+                        if cap > 0:
+                            capital_map[code] = cap
+                    except Exception:
+                        pass
     except Exception:
         pass
 
     # --------------------------------------------------------
-    # TPEX 上櫃公司資本額（修正解析邏輯）
+    # 2. TPEX 上櫃公司資本額 (主要 OpenAPI + 政府開放資料備用源)
     # --------------------------------------------------------
-    try:
-        url_tpex = (
-            "https://www.tpex.org.tw/openapi/v1/"
-            "mopsfin_t187ap03_O"
-        )
+    tpex_urls = [
+        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
+        "https://quality.data.gov.tw/dq_download_json.php?nid=18420&md5_url=a7b8e5c3e061ef2f059bc43a755efc27"
+    ]
 
-        response = requests.get(
-            url_tpex,
-            headers=OFFICIAL_HEADERS,
-            timeout=REQUEST_TIMEOUT
-        )
+    for url in tpex_urls:
+        try:
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list) and len(data) > 0:
+                    for row in data:
+                        code = str(
+                            row.get("SecuritiesCompanyCode", 
+                            row.get("公司代號", 
+                            row.get("StkNo", "")))
+                        ).strip()
 
-        response.raise_for_status()
-        data = response.json()
-
-        if isinstance(data, list):
-            df = pd.DataFrame(data)
-
-            if not df.empty:
-                code_col = None
-                capital_col = None
-
-                for col in df.columns:
-                    col_str = str(col)
-
-                    if (
-                        "公司代號" in col_str
-                        or col_str.lower() in ["securitiescompanycode", "companycode", "code"]
-                    ):
-                        code_col = col
-
-                    if (
-                        "實收資本" in col_str
-                        or col_str.lower() in ["capital", "paidincapital", "paid_in_capital"]
-                    ):
-                        capital_col = col
-
-                if code_col is not None and capital_col is not None:
-                    for _, row in df.iterrows():
-                        code = str(row[code_col]).strip()
-                        capital_raw = (
-                            str(row[capital_col])
-                            .replace(",", "")
-                            .strip()
-                        )
+                        cap_str = str(
+                            row.get("CapitalStock", 
+                            row.get("PaidInCapital", 
+                            row.get("實收資本額(元)", 
+                            row.get("實收資本額", "0"))))
+                        ).replace(",", "").strip()
 
                         try:
-                            capital = float(capital_raw)
-
-                            if capital > 0:
-                                capital_map[code] = capital
+                            cap = float(cap_str)
+                            if cap > 0:
+                                # 自動單位判斷：若數值小於1億，常為千元單位，補放大1000倍換算為「元」
+                                if cap < 100000000:
+                                    cap = cap * 1000
+                                capital_map[code] = cap
                         except Exception:
                             pass
-
-    except Exception:
-        pass
+                    
+                    # 驗證是否已抓到上櫃股票代號，成功即跳出備用迴圈
+                    if any(k for k in capital_map if len(k) == 4 and k.startswith(("5", "6", "8"))):
+                        break
+        except Exception:
+            continue
 
     return capital_map
 
@@ -2129,7 +2086,7 @@ if st.sidebar.button(
 
 
     # ========================================================
-    # 股本
+    # 股本 (抗擋與雙源解析)
     # ========================================================
 
     with st.spinner(
@@ -2137,7 +2094,7 @@ if st.sidebar.button(
     ):
 
         capital_map = (
-            get_company_capital_data()
+            get_company_capital_data_v2()
         )
 
     st.info(

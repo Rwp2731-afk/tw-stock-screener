@@ -84,49 +84,9 @@ def get_company_capital_data():
     capital_map = {}
 
     # --------------------------------------------------------
-    # 共用：安全解析資本額
+    # TWSE 上市公司資本額
     # --------------------------------------------------------
-
-    def parse_capital(value):
-
-        if value is None:
-            return None
-
-        if isinstance(value, (int, float, np.integer, np.floating)):
-            try:
-                capital = float(value)
-                return capital if capital > 0 else None
-            except Exception:
-                return None
-
-        text = str(value).strip()
-
-        if not text or text in {"-", "—", "－", "N/A", "NA", "None", "nan"}:
-            return None
-
-        text = (
-            text
-            .replace(",", "")
-            .replace("，", "")
-            .replace(" ", "")
-            .replace("\u3000", "")
-        )
-
-        # 有些官方欄位可能附帶「元」
-        text = text.replace("元", "")
-
-        try:
-            capital = float(text)
-            return capital if capital > 0 else None
-        except Exception:
-            return None
-
-    # --------------------------------------------------------
-    # TWSE：上市公司
-    # --------------------------------------------------------
-
     try:
-
         url_twse = (
             "https://openapi.twse.com.tw/v1/"
             "opendata/t187ap03_L"
@@ -142,132 +102,58 @@ def get_company_capital_data():
         data = response.json()
 
         if isinstance(data, list):
-
             df = pd.DataFrame(data)
 
             if not df.empty:
-
                 code_col = None
                 capital_col = None
 
-                # 上市 API 主要使用中文欄位名稱
                 for col in df.columns:
+                    col_str = str(col)
 
-                    col_str = str(col).strip()
-
-                    if code_col is None and (
+                    if (
                         "公司代號" in col_str
-                        or col_str == "Code"
+                        or col_str.lower() in ["code", "companycode"]
                     ):
                         code_col = col
 
-                    if capital_col is None and (
-                        "實收資本額" in col_str
-                        or "實收資本" in col_str
+                    if (
+                        "實收資本" in col_str
+                        or col_str.lower() in ["capital", "paidincapital"]
                     ):
                         capital_col = col
 
-                if (
-                    code_col is not None
-                    and capital_col is not None
-                ):
-
+                if code_col is not None and capital_col is not None:
                     for _, row in df.iterrows():
-
-                        code = str(
-                            row[code_col]
-                        ).strip()
-
-                        capital = parse_capital(
-                            row[capital_col]
+                        code = str(row[code_col]).strip()
+                        capital_raw = (
+                            str(row[capital_col])
+                            .replace(",", "")
+                            .strip()
                         )
 
-                        if code and capital is not None:
-                            capital_map[code] = capital
+                        try:
+                            capital = float(capital_raw)
+
+                            if capital > 0:
+                                capital_map[code] = capital
+                        except Exception:
+                            pass
 
     except Exception:
         pass
 
     # --------------------------------------------------------
-    # TPEX：上櫃公司
-    #
-    # V2.2.2 原本使用：
-    # mopsfin_t187ap03_O
-    #
-    # 問題：
-    # 上櫃基本資料 API 的欄位命名與上市不同，
-    # 且目前 API 回傳的是英文欄位；原程式只找
-    # 「實收資本額／實收資本」，因此 capital_col
-    # 很容易找不到，造成所有上櫃股票 capital=None。
-    #
-    # 官方上櫃行情 API：
-    # tpex_mainboard_quotes
-    #
-    # 其中 Capitals 就是「實收資本額」，
-    # 並且 SecuritiesCompanyCode 就是股票代號。
-    #
-    # 這裡只修正「資本額資料來源」，
-    # 不碰任何選股條件。
+    # TPEX 上櫃公司資本額（修正解析邏輯）
     # --------------------------------------------------------
-
     try:
-
-        url_tpex_quotes = (
-            "https://www.tpex.org.tw/openapi/v1/"
-            "tpex_mainboard_quotes"
-        )
-
-        response = requests.get(
-            url_tpex_quotes,
-            headers=OFFICIAL_HEADERS,
-            timeout=REQUEST_TIMEOUT
-        )
-
-        response.raise_for_status()
-        data = response.json()
-
-        if isinstance(data, list):
-
-            for row in data:
-
-                code = str(
-                    row.get(
-                        "SecuritiesCompanyCode",
-                        ""
-                    )
-                ).strip()
-
-                if not code:
-                    continue
-
-                # 官方 TPEX 欄位：Capitals = 實收資本額
-                capital = parse_capital(
-                    row.get("Capitals")
-                )
-
-                if capital is not None:
-                    capital_map[code] = capital
-
-    except Exception:
-        pass
-
-    # --------------------------------------------------------
-    # TPEX 備援：
-    # 如果 tpex_mainboard_quotes 某些股票沒有 Capitals，
-    # 再從上櫃公司基本資料 API 嘗試取得。
-    #
-    # 這只是資本額資料 fallback，不改任何選股邏輯。
-    # --------------------------------------------------------
-
-    try:
-
-        url_tpex_basic = (
+        url_tpex = (
             "https://www.tpex.org.tw/openapi/v1/"
             "mopsfin_t187ap03_O"
         )
 
         response = requests.get(
-            url_tpex_basic,
+            url_tpex,
             headers=OFFICIAL_HEADERS,
             timeout=REQUEST_TIMEOUT
         )
@@ -276,86 +162,43 @@ def get_company_capital_data():
         data = response.json()
 
         if isinstance(data, list):
-
             df = pd.DataFrame(data)
 
             if not df.empty:
-
                 code_col = None
                 capital_col = None
 
-                # TPEX 基本資料主要使用英文欄位。
-                # 這裡採「精確／關鍵字」雙重辨識，
-                # 避免因欄位名稱略有差異而整批失效。
-                code_candidates = {
-                    "SecuritiesCompanyCode",
-                    "CompanyCode",
-                    "Code",
-                    "公司代號"
-                }
-
-                capital_candidates = {
-                    "Capitals",
-                    "Capital",
-                    "PaidInCapital",
-                    "PaidinCapital",
-                    "PaidInCapitalAmount",
-                    "實收資本額",
-                    "實收資本"
-                }
-
                 for col in df.columns:
-
-                    col_str = str(col).strip()
+                    col_str = str(col)
 
                     if (
-                        code_col is None
-                        and (
-                            col_str in code_candidates
-                            or "公司代號" in col_str
-                        )
+                        "公司代號" in col_str
+                        or col_str.lower() in ["securitiescompanycode", "companycode", "code"]
                     ):
                         code_col = col
 
-                    if capital_col is None:
+                    if (
+                        "實收資本" in col_str
+                        or col_str.lower() in ["capital", "paidincapital", "paid_in_capital"]
+                    ):
+                        capital_col = col
 
-                        if col_str in capital_candidates:
-                            capital_col = col
-
-                        elif (
-                            "實收資本額" in col_str
-                            or "實收資本" in col_str
-                        ):
-                            capital_col = col
-
-                        elif (
-                            "PaidInCapital" in col_str
-                            or "PaidinCapital" in col_str
-                        ):
-                            capital_col = col
-
-                if (
-                    code_col is not None
-                    and capital_col is not None
-                ):
-
+                if code_col is not None and capital_col is not None:
                     for _, row in df.iterrows():
-
-                        code = str(
-                            row[code_col]
-                        ).strip()
-
-                        # 只有在前一個官方來源沒有資料時
-                        # 才使用 fallback。
-                        if code in capital_map:
-                            continue
-
-                        capital = parse_capital(
-                            row[capital_col]
+                        code = str(row[code_col]).strip()
+                        capital_raw = (
+                            str(row[capital_col])
+                            .replace(",", "")
+                            .strip()
                         )
 
-                        if code and capital is not None:
-                            capital_map[code] = capital
+                        try:
+                            capital = float(capital_raw)
+
+                            if capital > 0:
+                                capital_map[code] = capital
+                        except Exception:
+                            pass
 
     except Exception:
         pass
@@ -1280,12 +1123,6 @@ def clean_single_stock_data(df, ticker):
 
 # ============================================================
 # V2.2.2 成交量同步核心
-#
-# 唯一修改重點：
-# 第一階段快速篩選與第二階段完整分析，
-# 必須使用「同一個官方最新交易日」的成交量。
-#
-# 其他 V2.2.1 選股條件完全不改。
 # ============================================================
 
 def synchronize_latest_volume(
@@ -1315,8 +1152,6 @@ def synchronize_latest_volume(
     if official_date > today:
         return stock_df
 
-    # 官方最新成交量覆蓋 Yahoo 同日期資料
-    # 或新增官方最新交易日。
     values = {
         "Open": quote["Open"],
         "High": quote["High"],
@@ -1443,11 +1278,6 @@ def fast_filter_batch(
 
             code = stocks_info[ticker]["code"]
 
-            # ------------------------------------------------
-            # V2.2.2：
-            # 成交量、收盤價、最高價同步到同一官方日期。
-            # ------------------------------------------------
-
             stock_df = synchronize_latest_volume(
                 stock_df,
                 code,
@@ -1456,10 +1286,6 @@ def fast_filter_batch(
 
             if stock_df.empty:
                 continue
-
-            # ------------------------------------------------
-            # 只保留已完成交易日
-            # ------------------------------------------------
 
             last_date = stock_df.index[-1].date()
 
@@ -1587,12 +1413,6 @@ def analyze_candidate_from_df(
 
         code = stocks_info[ticker]["code"]
 
-        # ----------------------------------------------------
-        # V2.2.2：
-        # 第二階段再次強制使用相同官方最新行情，
-        # 確保與第一階段成交量完全同步。
-        # ----------------------------------------------------
-
         df_day = synchronize_latest_volume(
             df_day,
             code,
@@ -1626,10 +1446,7 @@ def analyze_candidate_from_df(
 
         close_week = df_week["Close"].to_numpy(float)
 
-        # ====================================================
         # 週MA
-        # ====================================================
-
         ma_week_series = (
             pd.Series(close_week)
             .rolling(params["ma_week"])
@@ -1645,19 +1462,13 @@ def analyze_candidate_from_df(
         if latest_week_close <= ma_week_val:
             return None
 
-        # ====================================================
         # 最新日線
-        # ====================================================
-
         latest_close = float(close_day[-1])
         latest_volume = float(vol_day[-1])
 
         latest_volume_lots = latest_volume / 1000
 
-        # ====================================================
         # 前5日均量
-        # ====================================================
-
         previous_5_volume = vol_day[-6:-1]
 
         if len(previous_5_volume) < 5:
@@ -1684,10 +1495,7 @@ def analyze_candidate_from_df(
         if volume_ratio < params["vol_multiplier"]:
             return None
 
-        # ====================================================
         # 40日突破
-        # ====================================================
-
         breakout_days = params["breakout_days"]
 
         previous_highs = (
@@ -1716,10 +1524,7 @@ def analyze_candidate_from_df(
             * 100
         )
 
-        # ====================================================
         # W底
-        # ====================================================
-
         w_info = detect_w_bottom(
             high_day=high_day,
             low_day=low_day,
@@ -1739,10 +1544,6 @@ def analyze_candidate_from_df(
         ):
             return None
 
-        # ====================================================
-        # 訊號
-        # ====================================================
-
         reasons = []
 
         if is_breakout:
@@ -1761,10 +1562,6 @@ def analyze_candidate_from_df(
             signal_type = "區間創高"
         else:
             signal_type = "W底突破"
-
-        # ====================================================
-        # 距離週MA
-        # ====================================================
 
         distance_to_week_ma_pct = (
             (

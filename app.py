@@ -2150,10 +2150,10 @@ if st.sidebar.button(
                 official_date_summary.items()
             ):
 
-                official_diag_rows.append({{
+                official_diag_rows.append({
                     "官方資料日期": date_text,
                     "股票數量": count
-                }})
+                })
 
             official_diag_df = pd.DataFrame(
                 official_diag_rows

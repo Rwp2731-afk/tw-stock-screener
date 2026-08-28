@@ -2764,7 +2764,8 @@ if st.sidebar.button(
                     "股本",
                     (
                         (
-                            f"{{m['capital'] / 100_000_000:.1f} 億"
+                            f"{m['capital'] / 100_000_000:.1f} 億"
+
                         )
                         if m["capital"] is not None
                         else "—"

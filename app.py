@@ -1,20 +1,19 @@
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
+import os
+import time
+import warnings
+from datetime import datetime, time as dt_time
+
 import matplotlib.pyplot as plt
 import mplfinance as mpf
-import twstock
-import warnings
-import time
+import numpy as np
+import pandas as pd
 import requests
-import os
-
-from datetime import time as dt_time, datetime
-
+import streamlit as st
+import twstock
+import yfinance as yf
 
 # ============================================================
-# 基本設定
+# 基本設定與頁面配置
 # ============================================================
 
 warnings.filterwarnings("ignore")
@@ -25,7 +24,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("📈 台股 V2.2.3 全自動選股雷達 (防死鎖修正版)")
+st.title("📈 台股 V2.2.3 全自動選股雷達 (防死鎖完全版)")
 
 st.caption(
     "V2.2.3 穩定版：修復上市櫃股本防鎖機制｜全台上市＋上櫃｜"
@@ -36,7 +35,7 @@ st.caption(
 
 
 # ============================================================
-# 常數
+# 全局常數
 # ============================================================
 
 TW_TZ = "Asia/Taipei"
@@ -51,7 +50,7 @@ MIN_FULL_ROWS = 100
 
 
 # ============================================================
-# 官方最新行情 API
+# TWSE / TPEX 官方行情 API 靜態設定
 # ============================================================
 
 TWSE_STOCK_DAY_ALL_URL = (
@@ -75,7 +74,7 @@ OFFICIAL_HEADERS = {
 
 
 # ============================================================
-# Streamlit Cache - 公司股本資料 (健壯抗鎖版)
+# Streamlit Cache - 公司股本資料 (防連線逾時死鎖)
 # ============================================================
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -93,7 +92,7 @@ def get_company_capital_data_v2():
         "Origin": "https://www.tpex.org.tw"
     }
 
-    # 1. TWSE 上市公司資本額
+    # 1. 抓取 TWSE 上市公司實收資本額
     try:
         url_twse = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
         res = requests.get(url_twse, headers=headers, timeout=REQUEST_TIMEOUT)
@@ -112,7 +111,7 @@ def get_company_capital_data_v2():
     except Exception:
         pass
 
-    # 2. TPEX 上櫃公司資本額
+    # 2. 抓取 TPEX 上櫃公司實收資本額 (多端點備援機制)
     tpex_urls = [
         "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
         "https://www.tpex.org.tw/openapi/v1/t187ap03_O"
@@ -141,6 +140,7 @@ def get_company_capital_data_v2():
                         try:
                             cap = float(cap_str)
                             if cap > 0:
+                                # 部分 API 單位若為千元則擴增至完整金額
                                 if cap < 100000000:
                                     cap = cap * 1000
                                 capital_map[code] = cap
@@ -155,7 +155,7 @@ def get_company_capital_data_v2():
 
 
 # ============================================================
-# 台灣時間與日期解析
+# 時間與日期解析工具
 # ============================================================
 
 def get_taiwan_now():
@@ -207,14 +207,14 @@ def parse_official_date(date_raw):
 
 
 # ============================================================
-# 官方最新行情
+# 官方最新行情整合
 # ============================================================
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_official_latest_quotes():
     quotes = {}
-    
-    # TWSE
+
+    # TWSE 上市行情
     try:
         res = requests.get(TWSE_STOCK_DAY_ALL_URL, headers=OFFICIAL_HEADERS, timeout=REQUEST_TIMEOUT)
         if res.status_code == 200:
@@ -242,7 +242,7 @@ def get_official_latest_quotes():
     except Exception:
         pass
 
-    # TPEX
+    # TPEX 上櫃行情
     try:
         res = requests.get(TPEX_MAINBOARD_QUOTE_URL, headers=OFFICIAL_HEADERS, timeout=REQUEST_TIMEOUT)
         if res.status_code == 200:
@@ -273,15 +273,8 @@ def get_official_latest_quotes():
     return quotes
 
 
-def get_latest_official_date(quotes):
-    if not quotes:
-        return None
-    dates = [pd.Timestamp(q["date"]).normalize() for q in quotes.values() if q.get("date") is not None and not pd.isna(q.get("date"))]
-    return max(dates) if dates else None
-
-
 # ============================================================
-# Yahoo 數據清洗與補全
+# Yahoo 數據清洗與對齊
 # ============================================================
 
 def flatten_yfinance_columns(df):
@@ -368,7 +361,7 @@ def build_completed_weekly_data(df_day):
 
 
 # ============================================================
-# W底與型態算術
+# W底型態演算
 # ============================================================
 
 def calculate_pivot_lows(low_values, pivot_window=3):
@@ -383,7 +376,10 @@ def calculate_pivot_lows(low_values, pivot_window=3):
 
 
 def detect_w_bottom(high_day, low_day, close_day, tolerance=0.06, lookback=60, pivot_window=3, min_gap=7, max_gap=35):
-    res = {"is_w_bottom": False, "left_idx": None, "right_idx": None, "left_foot": None, "right_foot": None, "neck_high": None, "foot_diff_pct": None}
+    res = {
+        "is_w_bottom": False, "left_idx": None, "right_idx": None,
+        "left_foot": None, "right_foot": None, "neck_high": None, "foot_diff_pct": None
+    }
     if len(low_day) < lookback:
         return res
 
@@ -433,7 +429,7 @@ def detect_w_bottom(high_day, low_day, close_day, tolerance=0.06, lookback=60, p
 
 
 # ============================================================
-# 股票清單與篩選
+# 股票資料抓取與兩階段過濾器
 # ============================================================
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -469,7 +465,7 @@ def fast_filter_batch(batch_df, stocks_info, capital_map, min_capital, vol_multi
         try:
             code = stocks_info[ticker]["code"]
             
-            # 寬鬆股本判斷：若有股本紀錄且低於門檻才濾除；若抓不到股本則放行
+            # 寬鬆股本過濾條件：有抓到股本且低於設定值才過濾；抓不到股本時則安全放行
             capital = capital_map.get(code)
             if capital is not None and capital < min_capital:
                 continue
@@ -602,7 +598,7 @@ def analyze_candidate_from_df(candidate, df_day, stocks_info, params, official_q
 
 
 # ============================================================
-# 控制台 UI 與執行主程式
+# 控制面板 UI 與邏輯啟動
 # ============================================================
 
 st.sidebar.header("🔍 V2.2.3 選股控制台")
@@ -642,7 +638,7 @@ if st.sidebar.button("🚀 開始 V2.2.3 雷達掃描", type="primary"):
 
     st.info(f"官方行情取得：{len(official_quotes)} 筆｜股本資料庫取得：{len(capital_map)} 筆")
 
-    # 第一階段
+    # 第一階段：批量快篩
     st.subheader("🔎 第一階段：快速篩選")
     progress = st.progress(0)
     fast_candidates, batch_errors = [], []
@@ -673,7 +669,7 @@ if st.sidebar.button("🚀 開始 V2.2.3 雷達掃描", type="primary"):
         st.warning("⚠️ 第一階段未找到符合條件的個股，請嘗試降低「最低股本」或「放量倍數」。")
         st.stop()
 
-    # 第二階段
+    # 第二階段：型態精算
     st.subheader("📐 第二階段：完整型態分析")
     progress2 = st.progress(0)
     matches = []
@@ -701,6 +697,7 @@ if st.sidebar.button("🚀 開始 V2.2.3 雷達掃描", type="primary"):
 
     st.success(f"🎉 掃描完畢！耗時 {elapsed:.1f} 秒，最終符合條件個股共 {len(matches)} 支。")
 
+    # 結果輸出
     if matches:
         st.subheader(f"📋 入選股票總覽（共 {len(matches)} 支）")
         summary_rows = []

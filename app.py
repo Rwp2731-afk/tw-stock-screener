@@ -174,6 +174,8 @@ def get_company_capital_data():
                     if (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
+                        or col_str == "PaidInCapital"
+                        or col_str == "Capital"
                     ):
                         capital_col = col
 

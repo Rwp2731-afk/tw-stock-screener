@@ -117,6 +117,8 @@ def get_company_capital_data():
                     if (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
+                        or "PaidInCapital" in col_str
+                        or "Capital" in col_str
                     ):
                         capital_col = col
 
@@ -174,8 +176,8 @@ def get_company_capital_data():
                     if (
                         "實收資本額" in col_str
                         or "實收資本" in col_str
-                        or col_str == "PaidInCapital"
-                        or col_str == "Capital"
+                        or "PaidInCapital" in col_str
+                        or "Capital" in col_str
                     ):
                         capital_col = col
 
@@ -2093,7 +2095,7 @@ if st.sidebar.button(
         st.stop()
 
     st.info(
-        f"股票清單取得完成：{len(stocks_info)} 支"
+        f"股票清單取得完成：{{len(stocks_info)}} 支"
     )
 
 
@@ -2126,7 +2128,7 @@ if st.sidebar.button(
         st.success(
             (
                 "📅 官方行情最新資料日期："
-                f"**{latest_official_date.strftime('%Y-%m-%d')}**"
+                f"**{{latest_official_date.strftime('%Y-%m-%d')}}**"
             )
         )
 
@@ -2148,10 +2150,10 @@ if st.sidebar.button(
                 official_date_summary.items()
             ):
 
-                official_diag_rows.append({
+                official_diag_rows.append({{
                     "官方資料日期": date_text,
                     "股票數量": count
-                })
+                }})
 
             official_diag_df = pd.DataFrame(
                 official_diag_rows
@@ -2183,7 +2185,7 @@ if st.sidebar.button(
         )
 
     st.info(
-        f"股本資料取得完成：{len(capital_map)} 家"
+        f"股本資料取得完成：{{len(capital_map)}} 家"
     )
 
 
@@ -2260,10 +2262,10 @@ if st.sidebar.button(
 
         except Exception as e:
 
-            batch_errors.append({
+            batch_errors.append({{
                 "ticker": ",".join(batch_tickers),
                 "error": repr(e)
-            })
+            }})
 
         progress.progress(
             batch_number / total_batches
@@ -2272,9 +2274,9 @@ if st.sidebar.button(
         status.text(
             (
                 f"批量掃描："
-                f"{batch_number}/{total_batches}｜"
+                f"{{batch_number}}/{{total_batches}}｜"
                 f"第一層候選："
-                f"{len(fast_candidates)} 支"
+                f"{{len(fast_candidates)}} 支"
             )
         )
 
@@ -2284,8 +2286,8 @@ if st.sidebar.button(
     st.success(
         (
             f"第一階段完成："
-            f"從 {len(tickers)} 支股票中"
-            f"留下 {len(fast_candidates)} 支候選股。"
+            f"從 {{len(tickers)}} 支股票中"
+            f"留下 {{len(fast_candidates)}} 支候選股。"
         )
     )
 
@@ -2294,9 +2296,9 @@ if st.sidebar.button(
 
         fast_date_df = (
             pd.DataFrame([
-                {
+                {{
                     "資料日期": x["data_date"]
-                }
+                }}
                 for x in fast_candidates
             ])
             .groupby("資料日期")
@@ -2355,10 +2357,10 @@ if st.sidebar.button(
         for x in fast_candidates
     ]
 
-    candidate_map = {
+    candidate_map = {{
         x["ticker"]: x
         for x in fast_candidates
-    }
+    }}
 
     total_candidate_batches = int(
         np.ceil(
@@ -2427,22 +2429,22 @@ if st.sidebar.button(
                 status2.text(
                     (
                         f"完整分析："
-                        f"{processed_candidates}/"
-                        f"{len(candidate_tickers)}｜"
+                        f"{{processed_candidates}}/"
+                        f"{{len(candidate_tickers)}}｜"
                         f"目前入選："
-                        f"{len(matches)} 支｜"
+                        f"{{len(matches)}} 支｜"
                         f"批次："
-                        f"{batch_number}/"
-                        f"{total_candidate_batches}"
+                        f"{{batch_number}}/"
+                        f"{{total_candidate_batches}}"
                     )
                 )
 
         except Exception as e:
 
-            batch_errors.append({
+            batch_errors.append({{
                 "ticker": ",".join(batch_tickers),
                 "error": "第二階段：" + repr(e)
-            })
+            }})
 
             processed_candidates += len(
                 batch_tickers
@@ -2518,16 +2520,16 @@ if st.sidebar.button(
         f"""
 🎉 V2.2.2 掃描完成！
 
-總掃描：{len(tickers)} 支
+總掃描：{{len(tickers)}} 支
 
 第一層候選：
-{len(fast_candidates)} 支
+{{len(fast_candidates)}} 支
 
 最終入選：
-{len(matches)} 支
+{{len(matches)}} 支
 
 總耗時：
-{elapsed:.1f} 秒
+{{elapsed:.1f}} 秒
 """
     )
 
@@ -2540,9 +2542,9 @@ if st.sidebar.button(
 
         final_date_df = (
             pd.DataFrame([
-                {
+                {{
                     "資料日期": m["data_date"]
-                }
+                }}
                 for m in matches
             ])
             .groupby("資料日期")
@@ -2577,7 +2579,7 @@ if st.sidebar.button(
                 (
                     "✅ 日期同步正常："
                     "所有最終入選股票均使用官方最新交易日 "
-                    f"{latest_official_date.strftime('%Y-%m-%d')}"
+                    f"{{latest_official_date.strftime('%Y-%m-%d')}}"
                 )
             )
 
@@ -2606,10 +2608,10 @@ if st.sidebar.button(
 
         industry_df = (
             pd.DataFrame([
-                {
+                {{
                     "產業": m["group"],
                     "入選家數": 1
-                }
+                }}
                 for m in matches
             ])
             .groupby("產業")
@@ -2647,7 +2649,7 @@ if st.sidebar.button(
         # ====================================================
 
         st.subheader(
-            f"📋 入選股票總覽（共 {len(matches)} 支）"
+            f"📋 入選股票總覽（共 {{len(matches)}} 支）"
         )
 
         summary_rows = []
@@ -2658,16 +2660,16 @@ if st.sidebar.button(
 
             if m["capital"] is not None:
                 capital_text = (
-                    f"{m['capital'] / 100_000_000:.1f}"
+                    f"{{m['capital'] / 100_000_000:.1f}}"
                 )
 
-            summary_rows.append({
+            summary_rows.append({{
 
                 "產業": m["group"],
 
                 "股票": (
-                    f"{m['name']} "
-                    f"({m['code']})"
+                    f"{{m['name']}} "
+                    f"({{m['code']}})"
                 ),
 
                 "市場": m["market"],
@@ -2676,22 +2678,22 @@ if st.sidebar.button(
 
                 "收盤價": m["close"],
 
-                f"週{ma_week}MA":
+                f"週{{ma_week}}MA":
                     m["ma_week_val"],
 
                 "距週MA":
-                    f"{m['distance_to_week_ma_pct']:.2f}%",
+                    f"{{m['distance_to_week_ma_pct']:.2f}}%",
 
                 "今日量(張)":
-                    f"{m['volume']:,}",
+                    f"{{m['volume']:,}}",
 
                 "前5日均量":
-                    f"{m['volume_avg_5']:,.0f}",
+                    f"{{m['volume_avg_5']:,.0f}}",
 
                 "放量倍數":
-                    f"{m['volume_ratio']:.2f}x",
+                    f"{{m['volume_ratio']:.2f}}x",
 
-                f"{breakout_days}日創高":
+                f"{{breakout_days}}日創高":
                     "✅"
                     if m["is_breakout"]
                     else "—",
@@ -2704,7 +2706,7 @@ if st.sidebar.button(
                 "訊號": m["signal_type"],
 
                 "資料日期": m["data_date"]
-            })
+            }})
 
         summary_df = pd.DataFrame(
             summary_rows
@@ -2731,9 +2733,9 @@ if st.sidebar.button(
 
             st.markdown(
                 f"""
-### 📌 {m['name']}（{m['code']}）
+### 📌 {{m['name']}}（{{m['code']}}）
 
-**{m['market']}｜產業：{m['group']}｜資料日期：{m['data_date']}**
+**{{m['market']}}｜產業：{{m['group']}}｜資料日期：{{m['data_date']}}**
 """
             )
 
@@ -2742,19 +2744,19 @@ if st.sidebar.button(
             with c1:
                 st.metric(
                     "收盤價",
-                    f"{m['close']:.2f} 元"
+                    f"{{m['close']:.2f}} 元"
                 )
 
             with c2:
                 st.metric(
-                    f"週{ma_week}MA",
-                    f"{m['ma_week_val']:.2f} 元"
+                    f"週{{ma_week}}MA",
+                    f"{{m['ma_week_val']:.2f}} 元"
                 )
 
             with c3:
                 st.metric(
                     "距週MA",
-                    f"{m['distance_to_week_ma_pct']:.2f}%"
+                    f"{{m['distance_to_week_ma_pct']:.2f}}%"
                 )
 
             with c4:
@@ -2762,7 +2764,7 @@ if st.sidebar.button(
                     "股本",
                     (
                         (
-                            f"{m['capital'] / 100_000_000:.1f} 億"
+                            f"{{m['capital'] / 100_000_000:.1f} 億"
                         )
                         if m["capital"] is not None
                         else "—"
@@ -2774,33 +2776,33 @@ if st.sidebar.button(
             with c1:
                 st.metric(
                     "今日成交量",
-                    f"{m['volume']:,} 張"
+                    f"{{m['volume']:,}} 張"
                 )
 
             with c2:
                 st.metric(
                     "前5日均量",
-                    f"{m['volume_avg_5']:,.0f} 張"
+                    f"{{m['volume_avg_5']:,.0f}} 張"
                 )
 
             with c3:
                 st.metric(
                     "放量倍數",
-                    f"{m['volume_ratio']:.2f}x"
+                    f"{{m['volume_ratio']:.2f}}x"
                 )
 
             c1, c2 = st.columns(2)
 
             with c1:
                 st.metric(
-                    f"{breakout_days}日最高價",
-                    f"{m['previous_high']:.2f}"
+                    f"{{breakout_days}}日最高價",
+                    f"{{m['previous_high']:.2f}}"
                 )
 
             with c2:
                 st.metric(
                     "突破幅度",
-                    f"{m['breakout_distance_pct']:.2f}%"
+                    f"{{m['breakout_distance_pct']:.2f}}%"
                 )
 
             st.markdown(
@@ -2809,7 +2811,7 @@ if st.sidebar.button(
 
             for reason in m["reasons"]:
                 st.success(
-                    f"✅ {reason}"
+                    f"✅ {{reason}}"
                 )
 
             if m["is_w_bottom"]:
@@ -2825,25 +2827,25 @@ if st.sidebar.button(
                 with w1:
                     st.metric(
                         "左腳",
-                        f"{w['left_foot']:.2f}"
+                        f"{{w['left_foot']:.2f}}"
                     )
 
                 with w2:
                     st.metric(
                         "右腳",
-                        f"{w['right_foot']:.2f}"
+                        f"{{w['right_foot']:.2f}}"
                     )
 
                 with w3:
                     st.metric(
                         "頸線",
-                        f"{w['neck_high']:.2f}"
+                        f"{{w['neck_high']:.2f}}"
                     )
 
                 with w4:
                     st.metric(
                         "左右腳差異",
-                        f"{w['foot_diff_pct']:.2f}%"
+                        f"{{w['foot_diff_pct']:.2f}}%"
                     )
 
             distance = (
@@ -2863,13 +2865,13 @@ if st.sidebar.button(
 
             st.markdown(
                 f"""
-🛡️ **週{ma_week}MA：**
-**{m['ma_week_val']:.2f} 元**
+🛡️ **週{{ma_week}}MA：**
+**{{m['ma_week_val']:.2f}} 元**
 
 📏 **目前價格距離週MA：**
-**{distance:.2f}%**
+**{{distance:.2f}}%**
 
-{risk_label}
+{{risk_label}}
 
 > 注意：週MA僅作為技術面停損參考，
 > 並不代表實際最大損失。
@@ -2924,7 +2926,7 @@ if st.sidebar.button(
     if batch_errors:
 
         with st.expander(
-            f"⚠️ 批量資料錯誤（{len(batch_errors)} 筆）"
+            f"⚠️ 批量資料錯誤（{{len(batch_errors)}} 筆）"
         ):
 
             error_df = pd.DataFrame(

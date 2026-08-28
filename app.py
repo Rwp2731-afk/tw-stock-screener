@@ -2389,6 +2389,11 @@ def fast_filter_batch(
 
                 continue
 
+            # 前5日平均成交量必須至少 1,000 張
+            if avg_5_volume < MIN_VOLUME_LOTS * 1000:
+                
+                continue
+
 
             # =================================================
             # 放量倍數
@@ -2740,6 +2745,9 @@ def analyze_candidate_from_df(
 
             return None
 
+        # 前5日平均成交量必須至少 1,000 張
+        if avg_5_volume < MIN_VOLUME_LOTS * 1000:
+            return None
 
         volume_ratio = (
             latest_volume
